@@ -8,7 +8,7 @@ namespace duckdb {
 
 class DeltaClassicCatalog;
 class DeltaClassicSchemaEntry;
-class DeltaClassicTableEntry;
+#include "storage/delta_classic_table_entry.hpp"
 struct EntryLookupInfo;
 
 class DeltaClassicTableSet {

@@ -6,7 +6,7 @@
 namespace duckdb {
 
 class DeltaClassicCatalog;
-class DeltaClassicTransaction;
+#include "storage/delta_classic_transaction.hpp"
 
 class DeltaClassicTransactionManager : public TransactionManager {
 public:

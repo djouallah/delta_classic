@@ -3,6 +3,7 @@
 
 #include "duckdb/catalog/catalog_entry.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/exception/binder_exception.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 
 namespace duckdb {
