@@ -92,6 +92,20 @@ This extension just makes that pattern first-class in DuckDB.
 
 Honestly, this should probably be a PR to the [Delta extension](https://github.com/duckdb/duckdb-delta) itself — it's a natural fit. But writing a standalone extension has a much lower entry bar, and this was the fastest way to get it working. If it proves useful, maybe it'll find its way upstream one day.
 
+## Usage with Microsoft Fabric / OneLake
+
+```python
+import duckdb
+
+conn = duckdb.connect()
+conn.sql("INSTALL delta_classic FROM community; LOAD delta_classic")
+conn.sql(f"""
+    ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/{lh}.Lakehouse/Tables/{schema}'
+    AS db (TYPE delta_classic, PIN_SNAPSHOT);
+    USE db;
+""")
+```
+
 ## Building
 
 ```bash
