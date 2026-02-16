@@ -2,9 +2,13 @@
 # description: Test that PIN_SNAPSHOT option is accepted and passed through
 # group: [delta_classic]
 
-require delta
-
 require delta_classic
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
 
 # Attach with PIN_SNAPSHOT option - should not error
 statement ok

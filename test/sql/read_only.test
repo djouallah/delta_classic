@@ -2,9 +2,13 @@
 # description: Test that delta_classic databases reject all write operations
 # group: [delta_classic]
 
-require delta
-
 require delta_classic
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
 
 statement ok
 ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic);

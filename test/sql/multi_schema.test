@@ -2,9 +2,13 @@
 # description: Test multi-schema mode where child dirs are schemas containing tables
 # group: [delta_classic]
 
-require delta
-
 require delta_classic
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
 
 # Attach a directory with schema subdirectories
 statement ok
