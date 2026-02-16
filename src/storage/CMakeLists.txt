@@ -1,5 +1,3 @@
-include_directories(include)
-
 add_library(delta_classic_ext_storage OBJECT
     delta_classic_catalog.cpp
     delta_classic_schema_entry.cpp

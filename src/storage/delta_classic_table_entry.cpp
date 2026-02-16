@@ -74,12 +74,12 @@ TableFunction DeltaClassicTableEntry::GetScanFunction(ClientContext &context, un
 
 	// Update columns on this table entry so DESCRIBE works
 	auto &internal_columns = internal_table.GetColumns();
-	internal_columns.Logical().ForEach([&](const idx_t index, const ColumnDefinition &col) {
+	for (auto &col : internal_columns.Logical()) {
 		if (!ColumnExists(col.Name())) {
 			ColumnDefinition new_col(col.Name(), col.Type());
 			columns.AddColumn(std::move(new_col));
 		}
-	});
+	}
 
 	return result;
 }

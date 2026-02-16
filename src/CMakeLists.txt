@@ -1,4 +1,4 @@
-include_directories(include)
+include_directories(include storage/include)
 add_subdirectory(storage)
 
 add_library(delta_classic_ext_library OBJECT delta_classic_extension.cpp)

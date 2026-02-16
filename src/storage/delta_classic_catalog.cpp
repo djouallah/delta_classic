@@ -114,9 +114,8 @@ void DeltaClassicCatalog::ScanSchemas(ClientContext &context, std::function<void
 optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransaction transaction,
                                                                     const EntryLookupInfo &schema_lookup,
                                                                     OnEntryNotFound if_not_found) {
-	auto context = transaction.TryGetContext();
-	if (context) {
-		DiscoverSchemas(*context);
+	if (transaction.HasContext()) {
+		DiscoverSchemas(transaction.GetContext());
 	}
 
 	auto &schema_name = schema_lookup.GetEntryName();

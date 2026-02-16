@@ -46,11 +46,35 @@ make test           # Run tests
 
 Targets DuckDB v1.4.4. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org, branch `main`).
 
-## CI
+## CI/CD
 
 GitHub Actions workflow at `.github/workflows/MainDistributionPipeline.yml` — builds on all platforms using `duckdb/extension-ci-tools` reusable workflows.
 
+### Critical: CI rebuilds DuckDB from source on every push
+The CI pipeline compiles DuckDB from source (not prebuilt binaries) for every architecture on every push. This means each push triggers 15-30+ minutes of builds across linux_amd64, linux_arm64, linux_amd64_musl, macOS, Windows, and WASM. **Batch your changes and only push when ready.** Don't make multiple small commits pushed individually — it wastes CI time and can create cascading cancelled runs.
+
+### All architectures are required
+Do NOT exclude any architecture from the CI matrix. The extension must build on all platforms to be accepted into the DuckDB community extensions repo. If a build fails on one arch, fix the root cause — don't exclude the arch.
+
+### vcpkg.json is required
+Even though this extension has no external dependencies, `vcpkg.json` must exist with the overlay-ports and overlay-triplets configuration. Without it, CI fails with "Failed to load manifest from directory" errors.
+
+### Workflow pinning
+The workflow, `duckdb_version`, and `ci_tools_version` are all pinned to `v1.4.4`. The submodules in `.gitmodules` use `branch = main` but the duckdb submodule is checked out at the v1.4.4 tag.
+
 ## Dependencies
 
-- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`)
-- **Build**: No external libraries. Pure C++ against DuckDB headers
+- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`). The Delta extension branch `v1.4-andium` is compatible with DuckDB v1.4.4.
+- **Build**: No external libraries. Pure C++ against DuckDB headers.
+
+## Common Pitfalls
+
+1. **PIN_SNAPSHOT is ATTACH-only** — it's an option for `ATTACH ... (TYPE DELTA)`, not a parameter for `delta_scan()`. This is why the extension internally ATTACHes each table rather than calling delta_scan directly.
+2. **Don't fork extension-ci-tools** — community extensions have their own standalone repos (e.g., `djouallah/delta_classic`), not forks of `duckdb/extension-ci-tools`.
+3. **Submodule init** — after cloning, run `git submodule update --init --recursive` to pull duckdb and extension-ci-tools.
+4. **Read-only enforcement** — every write path (CREATE TABLE, INSERT, UPDATE, DELETE, DROP) must throw. DuckDB will call these methods; they must exist but reject.
+
+## Reference Extensions
+
+- [duckdb/duckdb-delta](https://github.com/duckdb/duckdb-delta) (branch `v1.4-andium`) — the Delta extension this delegates to
+- [hugr-lab/mssql-extension](https://github.com/hugr-lab/mssql-extension) — example community extension with proper repo structure

@@ -64,11 +64,10 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::LookupEntry(CatalogTransacti
 	if (lookup_info.GetCatalogType() != CatalogType::TABLE_ENTRY) {
 		return nullptr;
 	}
-	auto context = transaction.TryGetContext();
-	if (!context) {
+	if (!transaction.HasContext()) {
 		return nullptr;
 	}
-	return tables.GetEntry(*context, lookup_info);
+	return tables.GetEntry(transaction.GetContext(), lookup_info);
 }
 
 void DeltaClassicSchemaEntry::Scan(ClientContext &context, CatalogType type,

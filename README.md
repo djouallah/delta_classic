@@ -70,6 +70,24 @@ SELECT * FROM db.CH0030.orders;
 
 Works with any path DuckDB supports: local, S3, ABFSS, GCS.
 
+## Why "Classic"?
+
+The name is a tongue-in-cheek reference to what Delta has become. Delta Lake started as a beautifully simple idea — Parquet files plus a transaction log on storage. But with [catalog-managed commits](https://learn.microsoft.com/en-us/azure/databricks/delta/catalog-managed-commits), Unity Catalog has taken over as the transaction coordinator itself. Commits are no longer just appended to `_delta_log` by the compute engine — they're validated, tracked, and ordered server-side by UC. The transaction log on disk is no longer the source of truth. Delta, in practice, has become a catalog-managed table format.
+
+To be fair, catalog-managed commits aren't a bad thing — they're essential for complex scenarios like multiple concurrent writers, multi-table transactions, and centralized governance at scale. If you need that, you need that.
+
+But many workloads are simpler: read-heavy analytics, single-writer pipelines, local exploration. For those, a catalog server is overhead you don't need. **Delta Classic** is a nod to that original idea: your tables are just directories with a `_delta_log`, and that log *is* the truth. No catalog service coordinating your commits. Just files on storage, the way Delta started.
+
+## Why Storage-Based Delta Management?
+
+Using plain storage (directories of Delta tables) instead of a metastore like Unity Catalog has real advantages:
+
+- **No catalog dependency** — you don't need Unity Catalog, Hive Metastore, or any external service to organize your tables
+- **Works everywhere** — local filesystem, S3, ABFSS, GCS. Just point at a directory
+- **Simple and portable** — your data layout *is* your catalog. Copy a folder, and you've copied a database
+
+This extension just makes that pattern first-class in DuckDB.
+
 ## Why an Extension?
 
 Honestly, this should probably be a PR to the [Delta extension](https://github.com/duckdb/duckdb-delta) itself — it's a natural fit. But writing a standalone extension has a much lower entry bar, and this was the fastest way to get it working. If it proves useful, maybe it'll find its way upstream one day.
