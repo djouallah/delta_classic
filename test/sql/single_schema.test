@@ -1,0 +1,56 @@
+# name: test/sql/single_schema.test
+# description: Test single-schema mode where delta tables are direct children
+# group: [delta_classic]
+
+require delta
+
+require delta_classic
+
+# Attach a directory where tables are direct children (single-schema mode)
+statement ok
+ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic);
+
+# List tables - should find table_a and table_b
+query I rowsort
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'sdb';
+----
+table_a
+table_b
+
+# Query table_a
+query ITR
+SELECT id, name, value FROM sdb.main.table_a ORDER BY id;
+----
+1	alice	10.0
+2	bob	20.0
+3	charlie	30.0
+
+# Query table_b
+query IT
+SELECT id, category FROM sdb.main.table_b ORDER BY id;
+----
+100	x
+200	y
+
+# Count rows
+query I
+SELECT COUNT(*) FROM sdb.main.table_a;
+----
+3
+
+# Test USE database then unqualified table name
+statement ok
+USE sdb;
+
+query I
+SELECT COUNT(*) FROM table_a;
+----
+3
+
+# Switch back to default
+statement ok
+USE memory;
+
+# Detach
+statement ok
+DETACH sdb;

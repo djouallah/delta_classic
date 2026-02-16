@@ -1,0 +1,65 @@
+# name: test/sql/multi_schema.test
+# description: Test multi-schema mode where child dirs are schemas containing tables
+# group: [delta_classic]
+
+require delta
+
+require delta_classic
+
+# Attach a directory with schema subdirectories
+statement ok
+ATTACH 'test/data/multi_schema' AS mdb (TYPE delta_classic);
+
+# Should discover schema1 and schema2
+query I rowsort
+SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'mdb' AND schema_name NOT IN ('information_schema', 'main');
+----
+schema1
+schema2
+
+# List tables in schema1
+query I rowsort
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'mdb' AND schema_name = 'schema1';
+----
+table_x
+table_y
+
+# List tables in schema2
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'mdb' AND schema_name = 'schema2';
+----
+table_z
+
+# Query with fully qualified name
+query ITI
+SELECT id, region, amount FROM mdb.schema1.table_x ORDER BY id;
+----
+1	east	100
+2	west	200
+3	east	150
+4	west	250
+5	east	300
+
+# Query table_y
+query TI
+SELECT key, val FROM mdb.schema1.table_y ORDER BY key;
+----
+a	1
+b	2
+
+# Query table_z in schema2
+query IT
+SELECT id, label FROM mdb.schema2.table_z ORDER BY id;
+----
+10	foo
+20	bar
+30	baz
+
+# Aggregation
+query I
+SELECT SUM(amount) FROM mdb.schema1.table_x;
+----
+1000
+
+statement ok
+DETACH mdb;

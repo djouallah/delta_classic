@@ -1,0 +1,31 @@
+# name: test/sql/read_only.test
+# description: Test that delta_classic databases reject all write operations
+# group: [delta_classic]
+
+require delta
+
+require delta_classic
+
+statement ok
+ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic);
+
+# CREATE TABLE should fail
+statement error
+CREATE TABLE rodb.main.new_table (id INTEGER);
+----
+delta_classic databases are read-only
+
+# DROP TABLE should fail
+statement error
+DROP TABLE rodb.main.table_a;
+----
+delta_classic databases are read-only
+
+# CREATE SCHEMA should fail
+statement error
+CREATE SCHEMA rodb.new_schema;
+----
+delta_classic databases are read-only
+
+statement ok
+DETACH rodb;
