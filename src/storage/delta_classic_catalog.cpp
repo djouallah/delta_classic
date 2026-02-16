@@ -79,6 +79,12 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 			info.schema = dir_name;
 			schemas[dir_name] = make_uniq<DeltaClassicSchemaEntry>(*this, info, schema_path);
 		}
+		// Ensure a "main" schema exists so USE db works
+		if (schemas.find(DEFAULT_SCHEMA) == schemas.end()) {
+			CreateSchemaInfo main_info;
+			main_info.schema = DEFAULT_SCHEMA;
+			schemas[DEFAULT_SCHEMA] = make_uniq<DeltaClassicSchemaEntry>(*this, main_info, base_path);
+		}
 	}
 
 	schemas_loaded = true;
