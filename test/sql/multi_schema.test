@@ -5,6 +5,9 @@
 require delta_classic
 
 statement ok
+INSTALL parquet;
+
+statement ok
 INSTALL delta;
 
 statement ok
