@@ -17,6 +17,7 @@ public:
 
 	optional_ptr<CatalogEntry> GetEntry(ClientContext &context, const EntryLookupInfo &lookup);
 	void Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback);
+	void ScanNoContext(const std::function<void(CatalogEntry &)> &callback);
 
 private:
 	void LoadEntries(ClientContext &context);

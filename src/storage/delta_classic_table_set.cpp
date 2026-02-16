@@ -65,4 +65,14 @@ void DeltaClassicTableSet::Scan(ClientContext &context, const std::function<void
 	}
 }
 
+void DeltaClassicTableSet::ScanNoContext(const std::function<void(CatalogEntry &)> &callback) {
+	lock_guard<mutex> lock(entry_lock);
+	if (!is_loaded) {
+		return;
+	}
+	for (auto &entry : tables) {
+		callback(*entry.second);
+	}
+}
+
 } // namespace duckdb

@@ -62,22 +62,8 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 
 	if (has_direct_delta_tables) {
 		// Single-schema mode: all delta tables are direct children
-		// Schema name = last component of base_path
-		string schema_name;
-		auto last_slash = base_path.find_last_of('/');
-		if (last_slash != string::npos) {
-			schema_name = base_path.substr(last_slash + 1);
-		} else {
-			schema_name = base_path;
-		}
-		// Also handle backslashes for Windows paths
-		auto last_backslash = schema_name.find_last_of('\\');
-		if (last_backslash != string::npos) {
-			schema_name = schema_name.substr(last_backslash + 1);
-		}
-		if (schema_name.empty()) {
-			schema_name = DEFAULT_SCHEMA;
-		}
+		// Use DEFAULT_SCHEMA ("main") so unqualified table names work after USE db
+		string schema_name = DEFAULT_SCHEMA;
 
 		CreateSchemaInfo info;
 		info.schema = schema_name;

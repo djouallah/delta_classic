@@ -7,7 +7,9 @@
 #include "duckdb/common/exception/binder_exception.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/main/attached_database.hpp"
@@ -25,24 +27,47 @@ unique_ptr<BaseStatistics> DeltaClassicTableEntry::GetStatistics(ClientContext &
 	return nullptr;
 }
 
-TableCatalogEntry &DeltaClassicTableEntry::GetInternalTableEntry(ClientContext &context) {
-	if (!is_attached) {
-		auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
-
-		// Build the ATTACH statement using internal SQL execution
-		string sql = "ATTACH '" + delta_table_path + "' AS \"" + internal_db_name + "\" (TYPE DELTA";
-		if (dc_catalog.pin_snapshot) {
-			sql += ", PIN_SNAPSHOT";
-		}
-		sql += ");";
-
-		auto result = context.Query(sql, false);
-		if (result->HasError()) {
-			throw BinderException("Failed to attach delta table '%s': %s", delta_table_path,
-			                      result->GetError());
-		}
-		is_attached = true;
+void DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
+	if (is_attached) {
+		return;
 	}
+
+	auto &db_manager = DatabaseManager::Get(context);
+
+	// Check if already attached (e.g. from a previous call)
+	if (db_manager.GetDatabase(context, internal_db_name)) {
+		is_attached = true;
+		return;
+	}
+
+	// Use the programmatic attach API (not context.Query which deadlocks during binding)
+	AttachInfo info;
+	info.name = internal_db_name;
+	info.path = delta_table_path;
+	info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+
+	unordered_map<string, Value> opts;
+	opts["type"] = Value("delta");
+	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
+	if (dc_catalog.pin_snapshot) {
+		opts["pin_snapshot"] = Value::BOOLEAN(true);
+	}
+
+	auto &config = DBConfig::GetConfig(context);
+	AttachOptions options(opts, config.options.access_mode);
+
+	auto attached_db = db_manager.AttachDatabase(context, info, options);
+	if (attached_db) {
+		attached_db->Initialize(&context);
+		attached_db->FinalizeLoad(&context);
+		db_manager.FinalizeAttach(context, info, std::move(attached_db));
+	}
+
+	is_attached = true;
+}
+
+TableCatalogEntry &DeltaClassicTableEntry::GetInternalTableEntry(ClientContext &context) {
+	EnsureAttached(context);
 
 	// Look up the table in the internally attached delta database
 	auto &db_manager = DatabaseManager::Get(context);

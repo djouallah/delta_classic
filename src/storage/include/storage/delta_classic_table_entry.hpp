@@ -21,7 +21,9 @@ public:
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
 
 private:
-	//! Ensures the internal delta database is attached, returns the internal table entry
+	//! Attaches the internal delta database using the programmatic API (safe during binding)
+	void EnsureAttached(ClientContext &context);
+	//! Returns the internal table entry from the attached delta database
 	TableCatalogEntry &GetInternalTableEntry(ClientContext &context);
 
 	//! Internal database name used for ATTACH

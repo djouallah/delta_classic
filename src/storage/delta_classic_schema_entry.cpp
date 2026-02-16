@@ -80,7 +80,10 @@ void DeltaClassicSchemaEntry::Scan(ClientContext &context, CatalogType type,
 }
 
 void DeltaClassicSchemaEntry::Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) {
-	// Cannot scan without context (needed for filesystem)
+	if (type != CatalogType::TABLE_ENTRY) {
+		return;
+	}
+	tables.ScanNoContext(callback);
 }
 
 void DeltaClassicSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
