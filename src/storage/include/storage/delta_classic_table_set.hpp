@@ -3,12 +3,12 @@
 #include "duckdb/catalog/catalog_entry.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/mutex.hpp"
+#include "storage/delta_classic_table_entry.hpp"
 
 namespace duckdb {
 
 class DeltaClassicCatalog;
 class DeltaClassicSchemaEntry;
-#include "storage/delta_classic_table_entry.hpp"
 struct EntryLookupInfo;
 
 class DeltaClassicTableSet {

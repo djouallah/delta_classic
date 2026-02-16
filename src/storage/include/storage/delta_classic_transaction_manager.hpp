@@ -2,11 +2,11 @@
 
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/common/reference_map.hpp"
+#include "storage/delta_classic_transaction.hpp"
 
 namespace duckdb {
 
 class DeltaClassicCatalog;
-#include "storage/delta_classic_transaction.hpp"
 
 class DeltaClassicTransactionManager : public TransactionManager {
 public:

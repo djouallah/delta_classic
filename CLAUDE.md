@@ -67,6 +67,23 @@ The workflow, `duckdb_version`, and `ci_tools_version` are all pinned to `v1.4.4
 - **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`). The Delta extension branch `v1.4-andium` is compatible with DuckDB v1.4.4.
 - **Build**: No external libraries. Pure C++ against DuckDB headers.
 
+## Development Rules
+
+### Always verify APIs against local headers before writing code
+DuckDB has no stable C++ API. Methods, signatures, and includes change between versions. The `duckdb` submodule at `duckdb/src/include/` has all v1.4.4 headers locally. **Before using any DuckDB API, grep the local headers to confirm it exists:**
+```bash
+# Check if a method exists
+grep "TryGetContext" duckdb/src/include/duckdb/catalog/catalog_transaction.hpp
+# Find where a class is defined
+grep -r "class BinderException" duckdb/src/include/
+# Check method signatures
+grep -A 5 "GetScanFunction" duckdb/src/include/duckdb/catalog/catalog_entry/table_catalog_entry.hpp
+```
+This takes seconds vs 20+ minutes per CI round-trip. Never guess at APIs.
+
+### Never put #include inside namespace blocks
+`#include` directives must go before `namespace duckdb {`, not inside it. Putting them inside causes types to be declared in a nested `duckdb::duckdb` namespace.
+
 ## Common Pitfalls
 
 1. **PIN_SNAPSHOT is ATTACH-only** — it's an option for `ATTACH ... (TYPE DELTA)`, not a parameter for `delta_scan()`. This is why the extension internally ATTACHes each table rather than calling delta_scan directly.
