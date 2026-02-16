@@ -5,7 +5,6 @@
 
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context.hpp"
-#include "duckdb/main/client_context_file_opener.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
@@ -24,7 +23,6 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 
 	auto &catalog = schema.ParentCatalog().Cast<DeltaClassicCatalog>();
 	auto &fs = FileSystem::GetFileSystem(context);
-	ClientContextFileOpener opener(context);
 
 	fs.ListFiles(schema.schema_path, [&](const string &filename, bool is_directory) {
 		if (!is_directory) {
@@ -37,13 +35,13 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 		string subdir_path = schema.schema_path + "/" + filename;
 		string delta_log_path = subdir_path + "/_delta_log";
 
-		if (fs.DirectoryExists(delta_log_path, &opener)) {
+		if (fs.DirectoryExists(delta_log_path)) {
 			CreateTableInfo info;
 			info.table = filename;
 			auto entry = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, subdir_path);
 			tables[filename] = std::move(entry);
 		}
-	}, &opener);
+	});
 
 	is_loaded = true;
 }

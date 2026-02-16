@@ -6,7 +6,6 @@
 #include "duckdb/common/exception/binder_exception.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context.hpp"
-#include "duckdb/main/client_context_file_opener.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/storage/database_size.hpp"
@@ -37,7 +36,6 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 	}
 
 	auto &fs = FileSystem::GetFileSystem(context);
-	ClientContextFileOpener opener(context);
 
 	// First pass: check if any immediate child has _delta_log (single-schema mode)
 	bool has_direct_delta_tables = false;
@@ -56,11 +54,11 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 		}
 		string child_path = base_path + "/" + filename;
 		string delta_log_path = child_path + "/_delta_log";
-		if (fs.DirectoryExists(delta_log_path, &opener)) {
+		if (fs.DirectoryExists(delta_log_path)) {
 			has_direct_delta_tables = true;
 		}
 		child_dirs.push_back(filename);
-	}, &opener);
+	});
 
 	if (has_direct_delta_tables) {
 		// Single-schema mode: all delta tables are direct children
