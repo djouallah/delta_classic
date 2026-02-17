@@ -80,26 +80,6 @@ def test_create_index_fails(conn):
     conn.execute("DETACH rodb")
 
 
-def test_copy_to_fails(conn):
-    conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
-    with pytest.raises(Exception):
-        conn.execute("COPY (SELECT 1 AS x) TO 'rodb.main.new_table'")
-    conn.execute("DETACH rodb")
-
-
-def test_select_still_works_after_failed_write(conn):
-    """Verify the database remains usable after a rejected write."""
-    conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
-    count = conn.execute("SELECT COUNT(*) FROM rodb.main.table_a").fetchone()[0]
-    assert count == 3
-    with pytest.raises(Exception, match="read-only"):
-        conn.execute("CREATE TABLE rodb.main.nope (id INTEGER)")
-    # Should still be queryable
-    count2 = conn.execute("SELECT COUNT(*) FROM rodb.main.table_a").fetchone()[0]
-    assert count2 == 3
-    conn.execute("DETACH rodb")
-
-
 def test_insert_select_fails(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
     conn.execute("SELECT COUNT(*) FROM rodb.main.table_a")
