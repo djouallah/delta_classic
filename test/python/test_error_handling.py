@@ -5,8 +5,11 @@ import duckdb
 
 
 def test_nonexistent_path(conn):
+    # ATTACH is lazy - no filesystem check until first query
+    conn.execute("ATTACH 'test/data/nonexistent_path' AS bad1 (TYPE delta_classic)")
     with pytest.raises(Exception):
-        conn.execute("ATTACH 'test/data/nonexistent_path' AS bad1 (TYPE delta_classic)")
+        conn.execute("SELECT * FROM bad1.main.some_table")
+    conn.execute("DETACH bad1")
 
 
 def test_missing_table(conn):

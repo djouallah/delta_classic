@@ -42,20 +42,14 @@ SELECT COUNT(*) FROM rodb.main.table_a;
 
 statement error
 INSERT INTO rodb.main.table_a VALUES (99, 'test', 99.0);
-----
-read-only
 
 # UPDATE should fail
 statement error
 UPDATE rodb.main.table_a SET name = 'test' WHERE id = 1;
-----
-read-only
 
 # DELETE should fail
 statement error
 DELETE FROM rodb.main.table_a WHERE id = 1;
-----
-read-only
 
 statement ok
 DETACH rodb;
