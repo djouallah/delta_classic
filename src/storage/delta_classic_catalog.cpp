@@ -9,6 +9,7 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/storage/database_size.hpp"
+#include "duckdb/main/database_manager.hpp"
 
 namespace duckdb {
 
@@ -179,6 +180,20 @@ string DeltaClassicCatalog::GetDBPath() {
 
 void DeltaClassicCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 	throw NotImplementedException("delta_classic databases are read-only");
+}
+
+void DeltaClassicCatalog::RegisterInternalDb(const string &name) {
+	lock_guard<mutex> lock(internal_db_lock);
+	internal_db_names.push_back(name);
+}
+
+void DeltaClassicCatalog::OnDetach(ClientContext &context) {
+	lock_guard<mutex> lock(internal_db_lock);
+	auto &db_manager = DatabaseManager::Get(context);
+	for (auto &name : internal_db_names) {
+		db_manager.DetachDatabase(context, name, OnEntryNotFound::RETURN_NULL);
+	}
+	internal_db_names.clear();
 }
 
 } // namespace duckdb

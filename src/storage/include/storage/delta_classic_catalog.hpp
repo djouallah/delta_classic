@@ -3,6 +3,7 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/enums/access_mode.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
+#include "duckdb/common/vector.hpp"
 
 namespace duckdb {
 
@@ -41,6 +42,9 @@ public:
 	bool InMemory() override;
 	string GetDBPath() override;
 
+	void OnDetach(ClientContext &context) override;
+	void RegisterInternalDb(const string &name);
+
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 	void DiscoverSchemas(ClientContext &context);
@@ -49,6 +53,9 @@ private:
 	case_insensitive_map_t<unique_ptr<DeltaClassicSchemaEntry>> schemas;
 	bool schemas_loaded;
 	mutex schema_lock;
+
+	vector<string> internal_db_names;
+	mutex internal_db_lock;
 };
 
 } // namespace duckdb

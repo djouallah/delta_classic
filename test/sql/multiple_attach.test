@@ -1,0 +1,64 @@
+# name: test/sql/multiple_attach.test
+# description: Test attaching multiple delta_classic databases and cleanup of internal databases on detach
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# Attach two delta_classic databases simultaneously (without detaching first)
+statement ok
+ATTACH 'test/data/single_schema' AS db1 (TYPE delta_classic);
+
+statement ok
+ATTACH 'test/data/single_schema' AS db2 (TYPE delta_classic);
+
+# Both databases should be queryable
+query I
+SELECT COUNT(*) FROM db1.main.table_a;
+----
+3
+
+query I
+SELECT COUNT(*) FROM db2.main.table_a;
+----
+3
+
+# Internal __dc_ databases should not be visible to the user
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+----
+0
+
+# Detach db1 - its internal databases should be cleaned up
+statement ok
+DETACH db1;
+
+# db2 should still work after detaching db1
+query I
+SELECT COUNT(*) FROM db2.main.table_a;
+----
+3
+
+# Only db2's internal databases should remain (but hidden)
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+----
+0
+
+# Detach db2
+statement ok
+DETACH db2;
+
+# No orphaned internal databases should remain
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+----
+0

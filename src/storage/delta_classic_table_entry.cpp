@@ -63,6 +63,7 @@ void DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
 		db_manager.FinalizeAttach(context, info, std::move(attached_db));
 	}
 
+	dc_catalog.RegisterInternalDb(internal_db_name);
 	is_attached = true;
 }
 
