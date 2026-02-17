@@ -1,0 +1,53 @@
+name: Test Pipeline
+on:
+  workflow_run:
+    workflows: ["Main Extension Distribution Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Build workflow run ID to download artifacts from (leave empty for latest)'
+        required: false
+
+jobs:
+  test-linux:
+    name: Test extension (linux_amd64)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download extension artifact (from triggering workflow)
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: delta_classic-v1.4.4-extension-linux_amd64
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          path: ./artifact
+
+      - name: Download extension artifact (manual dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: delta_classic-v1.4.4-extension-linux_amd64
+          workflow: MainDistributionPipeline.yml
+          run_id: ${{ github.event.inputs.run_id }}
+          path: ./artifact
+          if_no_artifact_found: fail
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install duckdb==1.4.4 pytest
+
+      - name: Run tests
+        env:
+          DELTA_CLASSIC_EXTENSION_PATH: ./artifact/delta_classic.duckdb_extension
+        run: |
+          pytest test/python/ -v
