@@ -84,6 +84,11 @@ This takes seconds vs 20+ minutes per CI round-trip. Never guess at APIs.
 ### Never put #include inside namespace blocks
 `#include` directives must go before `namespace duckdb {`, not inside it. Putting them inside causes types to be declared in a nested `duckdb::duckdb` namespace.
 
+## Testing Rules
+
+### Never reference internal databases in tests
+The `__dc_*` internal databases are an implementation detail. Tests must ONLY interact with the user-facing catalog (`ATTACH 'path' AS db (TYPE delta_classic)` then query `db.schema.table`). Never assert on, query, or reference `__dc_*` database names. If something doesn't work through the public interface, fix the C++ code — don't test the internals.
+
 ## Common Pitfalls
 
 1. **PIN_SNAPSHOT is ATTACH-only** — it's an option for `ATTACH ... (TYPE DELTA)`, not a parameter for `delta_scan()`. This is why the extension internally ATTACHes each table rather than calling delta_scan directly.

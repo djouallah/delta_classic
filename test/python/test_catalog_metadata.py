@@ -30,11 +30,9 @@ def test_schema_listed_in_duckdb_schemas(conn):
     conn.execute("DETACH sdb")
 
 
-@pytest.mark.skip(reason="DESCRIBE triggers GetScanFunction which looks up internal DB — cross-statement visibility bug")
 def test_describe_single_schema_table(conn):
-    conn.execute("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
-    conn.execute("SELECT COUNT(*) FROM sdb.main.table_a")
-    cols = conn.execute("DESCRIBE sdb.main.table_a").fetchall()
+    conn.sql("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
+    cols = conn.sql("DESCRIBE sdb.main.table_a").fetchall()
     col_names = [r[0] for r in cols]
     assert "id" in col_names
     assert "name" in col_names
