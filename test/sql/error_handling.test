@@ -1,0 +1,43 @@
+# name: test/sql/error_handling.test
+# description: Test error handling for invalid paths, missing tables, and missing schemas
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# Attach a path that does not exist
+statement error
+ATTACH 'test/data/nonexistent_path' AS bad1 (TYPE delta_classic);
+
+# Attach a valid delta_classic database for table/schema lookup tests
+statement ok
+ATTACH 'test/data/single_schema' AS edb (TYPE delta_classic);
+
+# Query a table that does not exist
+statement error
+SELECT * FROM edb.main.no_such_table;
+
+# Query a schema that does not exist
+statement error
+SELECT * FROM edb.no_such_schema.table_a;
+
+statement ok
+DETACH edb;
+
+# Attach multi-schema and query wrong schema
+statement ok
+ATTACH 'test/data/multi_schema' AS mdb (TYPE delta_classic);
+
+statement error
+SELECT * FROM mdb.nonexistent_schema.table_x;
+
+statement ok
+DETACH mdb;

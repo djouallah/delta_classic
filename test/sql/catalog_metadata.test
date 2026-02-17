@@ -1,0 +1,94 @@
+# name: test/sql/catalog_metadata.test
+# description: Test catalog metadata: duckdb_databases, duckdb_tables, duckdb_schemas, DESCRIBE
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# ============================================================
+# Single-schema metadata
+# ============================================================
+
+statement ok
+ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic);
+
+# Database should appear in duckdb_databases
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name = 'sdb';
+----
+1
+
+# Tables should be listed
+query I rowsort
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'sdb';
+----
+table_a
+table_b
+
+# Schema should be main
+query I
+SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'sdb' AND schema_name = 'main';
+----
+main
+
+# DESCRIBE should show column info after querying the table
+query I
+SELECT COUNT(*) FROM sdb.main.table_a;
+----
+3
+
+query II rowsort
+SELECT column_name, data_type FROM (DESCRIBE sdb.main.table_a);
+----
+id	BIGINT
+name	VARCHAR
+value	DOUBLE
+
+statement ok
+DETACH sdb;
+
+# ============================================================
+# Multi-schema metadata
+# ============================================================
+
+statement ok
+ATTACH 'test/data/multi_schema' AS mdb (TYPE delta_classic);
+
+# Multiple schemas should be listed
+query I rowsort
+SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'mdb' AND schema_name NOT IN ('information_schema', 'main');
+----
+schema1
+schema2
+
+# Tables should be in correct schemas
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'mdb' AND schema_name IN ('schema1', 'schema2');
+----
+schema1	table_x
+schema1	table_y
+schema2	table_z
+
+# DESCRIBE multi-schema table
+query I
+SELECT COUNT(*) FROM mdb.schema1.table_x;
+----
+5
+
+query II rowsort
+SELECT column_name, data_type FROM (DESCRIBE mdb.schema1.table_x);
+----
+amount	BIGINT
+id	BIGINT
+region	VARCHAR
+
+statement ok
+DETACH mdb;

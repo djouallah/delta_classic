@@ -1,0 +1,85 @@
+# name: test/sql/reattach.test
+# description: Test detach and re-attach, and ATTACH OR REPLACE behavior
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# ============================================================
+# Detach and re-attach with same name
+# ============================================================
+
+statement ok
+ATTACH 'test/data/single_schema' AS mydb (TYPE delta_classic);
+
+query I
+SELECT COUNT(*) FROM mydb.main.table_a;
+----
+3
+
+statement ok
+DETACH mydb;
+
+# Re-attach same name, different path
+statement ok
+ATTACH 'test/data/multi_schema' AS mydb (TYPE delta_classic);
+
+# Should now see multi-schema tables, not single-schema
+query I rowsort
+SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'mydb' AND schema_name NOT IN ('information_schema', 'main');
+----
+schema1
+schema2
+
+query I
+SELECT COUNT(*) FROM mydb.schema1.table_x;
+----
+5
+
+# No orphaned internal databases from first attach
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_mydb_%' AND database_name NOT IN (SELECT database_name FROM duckdb_databases() WHERE database_name LIKE '__dc_mydb_schema%');
+----
+0
+
+statement ok
+DETACH mydb;
+
+# ============================================================
+# ATTACH OR REPLACE
+# ============================================================
+
+statement ok
+ATTACH 'test/data/single_schema' AS rdb (TYPE delta_classic);
+
+query I
+SELECT COUNT(*) FROM rdb.main.table_a;
+----
+3
+
+# Replace with different path
+statement ok
+ATTACH OR REPLACE 'test/data/multi_schema' AS rdb (TYPE delta_classic);
+
+# Should now have multi-schema data
+query I
+SELECT COUNT(*) FROM rdb.schema1.table_x;
+----
+5
+
+statement ok
+DETACH rdb;
+
+# No orphaned internal databases
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+----
+0
