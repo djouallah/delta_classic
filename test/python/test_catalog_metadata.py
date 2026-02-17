@@ -35,7 +35,7 @@ def test_describe_single_schema_table(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
     conn.execute("SELECT COUNT(*) FROM sdb.main.table_a")
     cols = conn.execute(
-        "SELECT column_name, data_type FROM (DESCRIBE sdb.main.table_a) ORDER BY column_name"
+        "SELECT column_name, column_type FROM (DESCRIBE sdb.main.table_a) ORDER BY column_name"
     ).fetchall()
     col_names = [r[0] for r in cols]
     assert "id" in col_names
