@@ -17,9 +17,6 @@ def extension_path():
 @pytest.fixture
 def conn(extension_path):
     con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
-    con.execute(f"LOAD '{extension_path}'")
-    con.execute("INSTALL parquet")
-    con.execute("INSTALL delta")
-    con.execute("LOAD delta")
+    con.execute(f"INSTALL '{extension_path}'")
     yield con
     con.close()
