@@ -18,5 +18,7 @@ def extension_path():
 def conn(extension_path):
     con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
     con.execute(f"INSTALL '{extension_path}'")
+    version = con.execute("SELECT extension_version FROM duckdb_extensions() WHERE extension_name = 'delta_classic'").fetchone()
+    print(f"\nINSTALL '{extension_path}' successful — version: {version[0] if version else 'unknown'}")
     yield con
     con.close()
