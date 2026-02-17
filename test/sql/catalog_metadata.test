@@ -39,6 +39,19 @@ SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'sdb' AND schema_
 ----
 main
 
+# DESCRIBE should show column info after querying the table
+query I
+SELECT COUNT(*) FROM sdb.main.table_a;
+----
+3
+
+query II rowsort
+SELECT column_name, column_type FROM (DESCRIBE sdb.main.table_a);
+----
+id	BIGINT
+name	VARCHAR
+value	DOUBLE
+
 statement ok
 DETACH sdb;
 
