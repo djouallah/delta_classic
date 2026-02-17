@@ -32,6 +32,7 @@ def test_schema_listed_in_duckdb_schemas(conn):
 
 def test_describe_single_schema_table(conn):
     conn.sql("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
+    conn.sql("FROM sdb.main.table_a")
     cols = conn.sql("DESCRIBE sdb.main.table_a").fetchall()
     col_names = [r[0] for r in cols]
     assert "id" in col_names
