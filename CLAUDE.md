@@ -37,12 +37,9 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT)
 3. **FileSystem abstraction** — works with local, S3, ABFSS, GCS paths automatically
 4. **Read-only** — all write operations throw
 
-## Building
+## Building & Testing
 
-```bash
-make release        # Build
-make test           # Run tests
-```
+**There is no local build or test environment.** All building and testing happens via CI (GitHub Actions). Do not attempt to build or run tests locally — just push to trigger CI.
 
 Targets DuckDB v1.4.4. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org, branch `main`).
 
