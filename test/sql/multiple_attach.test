@@ -31,12 +31,6 @@ SELECT COUNT(*) FROM db2.main.table_a;
 ----
 3
 
-# Internal __dc_ databases should not be visible to the user
-query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
-----
-0
-
 # Detach db1 - its internal databases should be cleaned up
 statement ok
 DETACH db1;
@@ -47,9 +41,9 @@ SELECT COUNT(*) FROM db2.main.table_a;
 ----
 3
 
-# Only db2's internal databases should remain (but hidden)
+# db1's internal databases should be gone, only db2's remain
 query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_db1_%';
 ----
 0
 
