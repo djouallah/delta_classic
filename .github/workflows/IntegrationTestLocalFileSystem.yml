@@ -1,4 +1,4 @@
-name: Python Tests
+name: Integration Test Local FileSystem
 on:
   workflow_run:
     workflows: ["Main Extension Distribution Pipeline", "Fabric Build"]
