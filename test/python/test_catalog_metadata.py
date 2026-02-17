@@ -30,13 +30,10 @@ def test_schema_listed_in_duckdb_schemas(conn):
     conn.execute("DETACH sdb")
 
 
-@pytest.mark.skip(reason="DESCRIBE re-binds table, internal DB not visible across statements")
 def test_describe_single_schema_table(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
     conn.execute("SELECT COUNT(*) FROM sdb.main.table_a")
-    cols = conn.execute(
-        "SELECT column_name, column_type FROM (DESCRIBE sdb.main.table_a) ORDER BY column_name"
-    ).fetchall()
+    cols = conn.execute("DESCRIBE sdb.main.table_a").fetchall()
     col_names = [r[0] for r in cols]
     assert "id" in col_names
     assert "name" in col_names
