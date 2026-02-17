@@ -1,7 +1,7 @@
 name: Python Tests
 on:
   workflow_run:
-    workflows: ["Main Extension Distribution Pipeline", "Linux Build"]
+    workflows: ["Main Extension Distribution Pipeline", "Fabric Build"]
     types: [completed]
   workflow_dispatch:
 
@@ -17,12 +17,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download latest extension artifact
+      - name: Download extension artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           name: delta_classic-v1.4.4-extension-linux_amd64
-          workflow: MainDistributionPipeline.yml
-          workflow_search: false
+          run_id: ${{ github.event.workflow_run.id }}
+          path: ./artifact
+          search_artifacts: true
+          if_no_artifact_found: warn
+
+      - name: Fallback - download latest artifact
+        if: ${{ hashFiles('artifact/delta_classic.duckdb_extension') == '' }}
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: delta_classic-v1.4.4-extension-linux_amd64
+          workflow: FabricBuild.yml
           path: ./artifact
           search_artifacts: true
 

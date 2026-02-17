@@ -1,7 +1,7 @@
 #
 # Fast build: linux_amd64 only. Runs on PRs and manual trigger.
 #
-name: Linux Build
+name: Fabric Build
 on:
   pull_request:
   workflow_dispatch:
