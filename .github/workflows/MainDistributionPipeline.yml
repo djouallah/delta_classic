@@ -18,3 +18,21 @@ jobs:
       duckdb_version: v1.4.4
       ci_tools_version: v1.4.4
       extension_name: delta_classic
+
+  python-tests:
+    name: Python tests
+    needs: duckdb-stable-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: delta_classic-v1.4.4-extension-linux_amd64
+          path: ./artifact
+      - run: pip install duckdb==1.4.4 pytest
+      - run: pytest test/python/ -v
+        env:
+          DELTA_CLASSIC_EXTENSION_PATH: ./artifact/delta_classic.duckdb_extension
