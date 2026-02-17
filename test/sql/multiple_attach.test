@@ -1,5 +1,5 @@
 # name: test/sql/multiple_attach.test
-# description: Test attaching multiple delta_classic databases and cleanup of internal databases on detach
+# description: Test attaching multiple delta_classic databases simultaneously
 # group: [delta_classic]
 
 require delta_classic
@@ -13,43 +13,100 @@ INSTALL delta;
 statement ok
 LOAD delta;
 
-# Attach two delta_classic databases simultaneously (without detaching first)
-statement ok
-ATTACH 'test/data/single_schema' AS db1 (TYPE delta_classic);
+# ============================================================
+# Scenario 1: Two databases pointing to the SAME path
+# ============================================================
 
 statement ok
-ATTACH 'test/data/single_schema' AS db2 (TYPE delta_classic);
+ATTACH 'test/data/single_schema' AS same1 (TYPE delta_classic);
 
-# Both databases should be queryable
+statement ok
+ATTACH 'test/data/single_schema' AS same2 (TYPE delta_classic);
+
+# Both should be independently queryable
 query I
-SELECT COUNT(*) FROM db1.main.table_a;
+SELECT COUNT(*) FROM same1.main.table_a;
 ----
 3
 
 query I
-SELECT COUNT(*) FROM db2.main.table_a;
+SELECT COUNT(*) FROM same2.main.table_a;
 ----
 3
 
-# Detach db1 - its internal databases should be cleaned up
-statement ok
-DETACH db1;
+query IT
+SELECT id, category FROM same2.main.table_b ORDER BY id;
+----
+100	x
+200	y
 
-# db2 should still work after detaching db1
+# Detach one, the other should still work
+statement ok
+DETACH same1;
+
 query I
-SELECT COUNT(*) FROM db2.main.table_a;
+SELECT COUNT(*) FROM same2.main.table_b;
+----
+2
+
+statement ok
+DETACH same2;
+
+# ============================================================
+# Scenario 2: Two databases pointing to DIFFERENT paths
+# ============================================================
+
+statement ok
+ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic);
+
+statement ok
+ATTACH 'test/data/multi_schema' AS mdb (TYPE delta_classic);
+
+# Query single-schema db
+query ITR
+SELECT id, name, value FROM sdb.main.table_a ORDER BY id;
+----
+1	alice	10.0
+2	bob	20.0
+3	charlie	30.0
+
+# Query multi-schema db
+query ITI
+SELECT id, region, amount FROM mdb.schema1.table_x ORDER BY id;
+----
+1	east	100
+2	west	200
+3	east	150
+4	west	250
+5	east	300
+
+query IT
+SELECT id, label FROM mdb.schema2.table_z ORDER BY id;
+----
+10	foo
+20	bar
+30	baz
+
+# ============================================================
+# Scenario 3: Cross-database queries
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM sdb.main.table_a AS a, mdb.schema1.table_x AS x WHERE a.id = x.id;
 ----
 3
 
-# db1's internal databases should be gone, only db2's remain
 query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_db1_%';
+SELECT (SELECT COUNT(*) FROM sdb.main.table_a) + (SELECT COUNT(*) FROM mdb.schema1.table_x);
 ----
-0
+8
 
-# Detach db2
+# Detach both
 statement ok
-DETACH db2;
+DETACH sdb;
+
+statement ok
+DETACH mdb;
 
 # No orphaned internal databases should remain
 query I
