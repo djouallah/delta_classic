@@ -4,3 +4,4 @@ cmake-build-debug/
 .vs/
 vcpkg/
 test/integration/
+.claude/settings.local.json
