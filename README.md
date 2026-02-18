@@ -4,12 +4,14 @@ A minimal DuckDB extension that lets you attach a **directory of Delta tables** 
 
 ## Installation
 
-Hopefully this will be available from the DuckDB community extensions soon. For now:
+you need to updgrade the latest stable version currently 1.4.4, Fabric notebook uses an old version (1.2.2)
 
 ```python
 !pip install duckdb --upgrade
 notebookutils.session.restartPython()
 ```
+
+Hopefully this will be available from the DuckDB community extensions soon. For now:
 
 ```python
 import duckdb
@@ -33,21 +35,6 @@ for tbl in tpch_tables:
 ```
 
 This creates a separate database per table. Annoying.
-
-## The Solution
-
-```sql
-LOAD delta;
-LOAD delta_classic;
-
-ATTACH 'abfss://tpch@onelake.dfs.fabric.microsoft.com/raw.Lakehouse/Tables' AS tpch (TYPE delta_classic, PIN_SNAPSHOT);
-
--- All tables are now available
-SELECT * FROM tpch.CH0030.orders;
-SHOW ALL TABLES;
-```
-
-That's it. One command, all your Delta tables.
 
 ## How It Works
 
@@ -111,12 +98,6 @@ This extension just makes that pattern first-class in DuckDB.
 
 ## Why an Extension?
 
-Honestly, this should probably be a PR to the [Delta extension](https://github.com/duckdb/duckdb-delta) itself — it's a natural fit. But writing a standalone extension has a much lower entry bar, and this was the fastest way to get it working. If it proves useful, maybe it'll find its way upstream one day.
-
-## Building
-
-```bash
-make release
-```
+Honestly, AI is becoming good enough to generate full extension out of thin air
 
 Requires DuckDB v1.4.4.
