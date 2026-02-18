@@ -1,6 +1,27 @@
 # Delta Classic - DuckDB Extension
 
-A minimal DuckDB extension that lets you attach a **directory of Delta tables** as a single database.
+A minimal DuckDB extension that lets you attach a **directory of Delta tables** as a single database. Works with any filesystem DuckDB supports: local, S3, ABFSS, GCS.
+
+## Installation
+
+Hopefully this will be available from the DuckDB community extensions soon. For now:
+
+```python
+!pip install duckdb --upgrade
+notebookutils.session.restartPython()
+```
+
+```python
+import duckdb
+
+conn = duckdb.connect(config={'allow_unsigned_extensions': True})
+conn.sql("INSTALL delta_classic FROM 'https://djouallah.github.io/delta_classic'")
+conn.sql(f"""
+    ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/{lh}.Lakehouse/Tables/{schema}'
+    AS db (TYPE delta_classic, PIN_SNAPSHOT);
+    USE db;
+""")
+```
 
 ## The Problem
 
@@ -91,25 +112,6 @@ This extension just makes that pattern first-class in DuckDB.
 ## Why an Extension?
 
 Honestly, this should probably be a PR to the [Delta extension](https://github.com/duckdb/duckdb-delta) itself — it's a natural fit. But writing a standalone extension has a much lower entry bar, and this was the fastest way to get it working. If it proves useful, maybe it'll find its way upstream one day.
-
-## Usage with Microsoft Fabric / OneLake
-
-```python
-import duckdb
-
-conn = duckdb.connect()
-conn.sql("""
-    SET allow_unsigned_extensions=true;
-    SET custom_extension_repository='https://djouallah.github.io/delta_classic';
-    INSTALL delta_classic;
-    LOAD delta_classic;
-""")
-conn.sql(f"""
-    ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/{lh}.Lakehouse/Tables/{schema}'
-    AS db (TYPE delta_classic, PIN_SNAPSHOT);
-    USE db;
-""")
-```
 
 ## Building
 
