@@ -98,7 +98,12 @@ Honestly, this should probably be a PR to the [Delta extension](https://github.c
 import duckdb
 
 conn = duckdb.connect()
-conn.sql("INSTALL delta_classic FROM community; LOAD delta_classic")
+conn.sql("""
+    SET allow_unsigned_extensions=true;
+    SET custom_extension_repository='https://djouallah.github.io/delta_classic';
+    INSTALL delta_classic;
+    LOAD delta_classic;
+""")
 conn.sql(f"""
     ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/{lh}.Lakehouse/Tables/{schema}'
     AS db (TYPE delta_classic, PIN_SNAPSHOT);
