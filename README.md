@@ -11,13 +11,12 @@ you need to updgrade the latest stable version currently 1.4.4, Fabric notebook 
 notebookutils.session.restartPython()
 ```
 
-Hopefully this will be available from the DuckDB community extensions soon. For now:
 
 ```python
 import duckdb
 
-conn = duckdb.connect(config={'allow_unsigned_extensions': True})
-conn.sql("INSTALL delta_classic FROM 'https://djouallah.github.io/delta_classic'")
+conn = duckdb.connect()
+conn.sql("install delta_classic FROM community ")
 conn.sql(f"""
     ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/{lh}.Lakehouse/Tables/{schema}'
     AS db (TYPE delta_classic, PIN_SNAPSHOT);
