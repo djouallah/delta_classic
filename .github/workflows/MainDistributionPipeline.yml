@@ -23,7 +23,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.0
     with:
-      duckdb_version: v1.5.0
+      duckdb_version: v1.5-variegata
       ci_tools_version: v1.5.0
       extension_name: delta_classic
 
@@ -43,63 +43,63 @@ jobs:
       - name: Create directory structure
         run: |
           for platform in linux_amd64 linux_arm64 linux_amd64_musl osx_amd64 osx_arm64 windows_amd64 windows_amd64_mingw; do
-            mkdir -p deploy/v1.5.0/${platform}
+            mkdir -p deploy/v1.5-variegata/${platform}
           done
 
       - name: Download linux_amd64
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-linux_amd64
+          name: delta_classic-v1.5-variegata-extension-linux_amd64
           path: artifacts/linux_amd64/
 
       - name: Download linux_arm64
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-linux_arm64
+          name: delta_classic-v1.5-variegata-extension-linux_arm64
           path: artifacts/linux_arm64/
 
       - name: Download linux_amd64_musl
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-linux_amd64_musl
+          name: delta_classic-v1.5-variegata-extension-linux_amd64_musl
           path: artifacts/linux_amd64_musl/
 
       - name: Download osx_amd64
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-osx_amd64
+          name: delta_classic-v1.5-variegata-extension-osx_amd64
           path: artifacts/osx_amd64/
 
       - name: Download osx_arm64
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-osx_arm64
+          name: delta_classic-v1.5-variegata-extension-osx_arm64
           path: artifacts/osx_arm64/
 
       - name: Download windows_amd64
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-windows_amd64
+          name: delta_classic-v1.5-variegata-extension-windows_amd64
           path: artifacts/windows_amd64/
 
       - name: Download windows_amd64_mingw
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: delta_classic-v1.5.0-extension-windows_amd64_mingw
+          name: delta_classic-v1.5-variegata-extension-windows_amd64_mingw
           path: artifacts/windows_amd64_mingw/
 
       - name: Gzip and arrange artifacts
         run: |
           for platform in linux_amd64 linux_arm64 linux_amd64_musl osx_amd64 osx_arm64 windows_amd64 windows_amd64_mingw; do
             if [ -f "artifacts/${platform}/delta_classic.duckdb_extension" ]; then
-              gzip -c "artifacts/${platform}/delta_classic.duckdb_extension" > "deploy/v1.5.0/${platform}/delta_classic.duckdb_extension.gz"
+              gzip -c "artifacts/${platform}/delta_classic.duckdb_extension" > "deploy/v1.5-variegata/${platform}/delta_classic.duckdb_extension.gz"
               echo "Packaged ${platform}"
             else
               echo "Skipping ${platform} (not found)"

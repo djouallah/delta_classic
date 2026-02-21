@@ -20,7 +20,7 @@ jobs:
       - name: Download extension artifact
         uses: dawidd6/action-download-artifact@v6
         with:
-          name: delta_classic-v1.5.0-extension-linux_amd64
+          name: delta_classic-v1.5-variegata-extension-linux_amd64
           run_id: ${{ github.event.workflow_run.id }}
           path: ./artifact
           search_artifacts: true
@@ -30,7 +30,7 @@ jobs:
         if: ${{ hashFiles('artifact/delta_classic.duckdb_extension') == '' }}
         uses: dawidd6/action-download-artifact@v6
         with:
-          name: delta_classic-v1.5.0-extension-linux_amd64
+          name: delta_classic-v1.5-variegata-extension-linux_amd64
           workflow: FabricBuild.yml
           path: ./artifact
           search_artifacts: true
