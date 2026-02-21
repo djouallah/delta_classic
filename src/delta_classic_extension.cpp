@@ -41,9 +41,10 @@ static unique_ptr<TransactionManager> DeltaClassicCreateTransactionManager(
 
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
-	config.storage_extensions["delta_classic"] = make_uniq<StorageExtension>();
-	config.storage_extensions["delta_classic"]->attach = DeltaClassicAttach;
-	config.storage_extensions["delta_classic"]->create_transaction_manager = DeltaClassicCreateTransactionManager;
+	auto extension = make_shared_ptr<StorageExtension>();
+	extension->attach = DeltaClassicAttach;
+	extension->create_transaction_manager = DeltaClassicCreateTransactionManager;
+	StorageExtension::Register(config, "delta_classic", std::move(extension));
 }
 
 void DeltaClassicExtension::Load(ExtensionLoader &loader) {

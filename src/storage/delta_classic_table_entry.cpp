@@ -56,12 +56,7 @@ void DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
 	auto &config = DBConfig::GetConfig(context);
 	AttachOptions options(opts, config.options.access_mode);
 
-	auto attached_db = db_manager.AttachDatabase(context, info, options);
-	if (attached_db) {
-		attached_db->Initialize(&context);
-		attached_db->FinalizeLoad(&context);
-		db_manager.FinalizeAttach(context, info, std::move(attached_db));
-	}
+	db_manager.AttachDatabase(context, info, options);
 
 	dc_catalog.RegisterInternalDb(internal_db_name);
 	is_attached = true;

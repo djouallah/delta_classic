@@ -41,7 +41,7 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT)
 
 **There is no local build or test environment.** All building and testing happens via CI (GitHub Actions). Do not attempt to build or run tests locally — just push to trigger CI.
 
-Targets DuckDB v1.4.4. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org, branch `main`).
+Targets DuckDB v1.5.0. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org). The `v144` branch preserves compatibility with DuckDB v1.4.4.
 
 ## CI/CD
 
@@ -57,17 +57,17 @@ Do NOT exclude any architecture from the CI matrix. The extension must build on 
 Even though this extension has no external dependencies, `vcpkg.json` must exist with the overlay-ports and overlay-triplets configuration. Without it, CI fails with "Failed to load manifest from directory" errors.
 
 ### Workflow pinning
-The workflow, `duckdb_version`, and `ci_tools_version` are all pinned to `v1.4.4`. The submodules in `.gitmodules` use `branch = main` but the duckdb submodule is checked out at the v1.4.4 tag.
+The workflow, `duckdb_version`, and `ci_tools_version` are all pinned to `v1.5.0`. The duckdb submodule tracks the `v1.5-variegata` branch and extension-ci-tools tracks the `v1.5.0` branch.
 
 ## Dependencies
 
-- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`). The Delta extension branch `v1.4-andium` is compatible with DuckDB v1.4.4.
+- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`).
 - **Build**: No external libraries. Pure C++ against DuckDB headers.
 
 ## Development Rules
 
 ### Always verify APIs against local headers before writing code
-DuckDB has no stable C++ API. Methods, signatures, and includes change between versions. The `duckdb` submodule at `duckdb/src/include/` has all v1.4.4 headers locally. **Before using any DuckDB API, grep the local headers to confirm it exists:**
+DuckDB has no stable C++ API. Methods, signatures, and includes change between versions. The `duckdb` submodule at `duckdb/src/include/` has all v1.5 headers locally. **Before using any DuckDB API, grep the local headers to confirm it exists:**
 ```bash
 # Check if a method exists
 grep "TryGetContext" duckdb/src/include/duckdb/catalog/catalog_transaction.hpp
@@ -95,5 +95,5 @@ The `__dc_*` internal databases are an implementation detail. Tests must ONLY in
 
 ## Reference Extensions
 
-- [duckdb/duckdb-delta](https://github.com/duckdb/duckdb-delta) (branch `v1.4-andium`) — the Delta extension this delegates to
+- [duckdb/duckdb-delta](https://github.com/duckdb/duckdb-delta) — the Delta extension this delegates to
 - [hugr-lab/mssql-extension](https://github.com/hugr-lab/mssql-extension) — example community extension with proper repo structure
