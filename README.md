@@ -4,7 +4,7 @@ A minimal DuckDB extension that lets you attach a **directory of Delta tables** 
 
 ## Installation
 
-you need to upgrade to the latest stable version currently 1.5.0, Fabric notebook uses an old version (1.2.2)
+Requires DuckDB v1.4.4 or later. Fabric notebook uses an old version (1.2.2), so you need to upgrade
 
 ```python
 !pip install duckdb --upgrade
@@ -99,4 +99,4 @@ This extension just makes that pattern first-class in DuckDB.
 
 Honestly, AI is becoming good enough to generate full extension out of thin air
 
-Requires DuckDB v1.5.0.
+Requires DuckDB v1.4.4 or later.
