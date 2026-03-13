@@ -49,7 +49,7 @@ read-only
 statement error
 UPDATE rodb.main.table_a SET name = 'test' WHERE id = 1;
 ----
-read-only
+Can only update base table
 
 # DELETE should fail
 statement error
