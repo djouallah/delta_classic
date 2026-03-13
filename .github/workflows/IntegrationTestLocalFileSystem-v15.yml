@@ -1,4 +1,4 @@
-name: Integration Test Local FileSystem (v1.5.0)
+name: Integration Test Local FileSystem (v1.5-pre)
 on:
   workflow_run:
     workflows: ["Main Extension Distribution Pipeline", "Fabric Build"]
