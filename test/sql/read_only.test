@@ -55,7 +55,7 @@ Can only update base table
 statement error
 DELETE FROM rodb.main.table_a WHERE id = 1;
 ----
-read-only
+Can only delete from base table
 
 statement ok
 DETACH rodb;
