@@ -11,6 +11,8 @@
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/main/database_manager.hpp"
 
+#include <cstdio>
+
 namespace duckdb {
 
 DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, AccessMode access_mode,
@@ -37,12 +39,17 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 	}
 
 	auto &fs = FileSystem::GetFileSystem(context);
+	fprintf(stderr, "[DEBUG CATALOG] DiscoverSchemas base_path=%s\n", base_path.c_str());
+	fflush(stderr);
 
 	// First pass: check if any immediate child has _delta_log (single-schema mode)
 	bool has_direct_delta_tables = false;
 	vector<string> child_dirs;
 
 	fs.ListFiles(base_path, [&](const string &filename, bool is_directory) {
+		fprintf(stderr, "[DEBUG CATALOG] candidate filename=%s is_directory=%d\n", filename.c_str(),
+		        is_directory ? 1 : 0);
+		fflush(stderr);
 		if (!is_directory) {
 			return;
 		}
@@ -57,9 +64,14 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 		string delta_log_path = child_path + "/_delta_log";
 		if (fs.DirectoryExists(delta_log_path)) {
 			has_direct_delta_tables = true;
+			fprintf(stderr, "[DEBUG CATALOG] direct delta table=%s\n", child_path.c_str());
+			fflush(stderr);
 		}
 		child_dirs.push_back(filename);
 	});
+	fprintf(stderr, "[DEBUG CATALOG] has_direct_delta_tables=%d child_dirs=%zu\n", has_direct_delta_tables ? 1 : 0,
+	        child_dirs.size());
+	fflush(stderr);
 
 	if (has_direct_delta_tables) {
 		// Single-schema mode: all delta tables are direct children

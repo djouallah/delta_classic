@@ -3,6 +3,8 @@
 #include "storage/delta_classic_schema_entry.hpp"
 #include "storage/delta_classic_table_entry.hpp"
 
+#include <cstdio>
+
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
@@ -23,8 +25,13 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 
 	auto &catalog = schema.ParentCatalog().Cast<DeltaClassicCatalog>();
 	auto &fs = FileSystem::GetFileSystem(context);
+	fprintf(stderr, "[DEBUG TABLE_SET] LoadEntries schema_path=%s\n", schema.schema_path.c_str());
+	fflush(stderr);
 
 	fs.ListFiles(schema.schema_path, [&](const string &filename, bool is_directory) {
+		fprintf(stderr, "[DEBUG TABLE_SET] candidate filename=%s is_directory=%d\n", filename.c_str(),
+		        is_directory ? 1 : 0);
+		fflush(stderr);
 		if (!is_directory) {
 			return;
 		}
@@ -36,12 +43,19 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 		string delta_log_path = subdir_path + "/_delta_log";
 
 		if (fs.DirectoryExists(delta_log_path)) {
+			fprintf(stderr, "[DEBUG TABLE_SET] adding table=%s path=%s\n", filename.c_str(), subdir_path.c_str());
+			fflush(stderr);
 			CreateTableInfo info;
 			info.table = filename;
 			auto entry = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, subdir_path);
 			tables[filename] = std::move(entry);
+		} else {
+			fprintf(stderr, "[DEBUG TABLE_SET] missing delta_log at %s\n", delta_log_path.c_str());
+			fflush(stderr);
 		}
 	});
+	fprintf(stderr, "[DEBUG TABLE_SET] finished LoadEntries tables=%zu\n", tables.size());
+	fflush(stderr);
 
 	is_loaded = true;
 }
