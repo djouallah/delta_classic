@@ -3,13 +3,38 @@
 #include "storage/delta_classic_schema_entry.hpp"
 #include "storage/delta_classic_table_entry.hpp"
 
-#include <cstdio>
-
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
+
+namespace {
+
+string GetFirstPathComponent(const string &path) {
+	auto slash_pos = path.find('/');
+	if (slash_pos == string::npos) {
+		return path;
+	}
+	return path.substr(0, slash_pos);
+}
+
+bool HasSecondPathComponent(const string &path, const string &expected) {
+	auto first_slash = path.find('/');
+	if (first_slash == string::npos) {
+		return false;
+	}
+	auto second_slash = path.find('/', first_slash + 1);
+	string second_component;
+	if (second_slash == string::npos) {
+		second_component = path.substr(first_slash + 1);
+	} else {
+		second_component = path.substr(first_slash + 1, second_slash - first_slash - 1);
+	}
+	return second_component == expected;
+}
+
+} // namespace
 
 DeltaClassicTableSet::DeltaClassicTableSet(DeltaClassicSchemaEntry &schema) : schema(schema), is_loaded(false) {
 }
@@ -25,37 +50,28 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 
 	auto &catalog = schema.ParentCatalog().Cast<DeltaClassicCatalog>();
 	auto &fs = FileSystem::GetFileSystem(context);
-	fprintf(stderr, "[DEBUG TABLE_SET] LoadEntries schema_path=%s\n", schema.schema_path.c_str());
-	fflush(stderr);
+	case_insensitive_map_t<bool> table_names;
 
 	fs.ListFiles(schema.schema_path, [&](const string &filename, bool is_directory) {
-		fprintf(stderr, "[DEBUG TABLE_SET] candidate filename=%s is_directory=%d\n", filename.c_str(),
-		        is_directory ? 1 : 0);
-		fflush(stderr);
-		if (!is_directory) {
+		if (filename.empty()) {
 			return;
 		}
-		// Skip hidden and internal directories
-		if (filename.empty() || filename[0] == '.' || filename[0] == '_') {
+		auto table_name = GetFirstPathComponent(filename);
+		if (table_name.empty() || table_name[0] == '.' || table_name[0] == '_') {
 			return;
 		}
-		string subdir_path = schema.schema_path + "/" + filename;
-		string delta_log_path = subdir_path + "/_delta_log";
-
-		if (fs.DirectoryExists(delta_log_path)) {
-			fprintf(stderr, "[DEBUG TABLE_SET] adding table=%s path=%s\n", filename.c_str(), subdir_path.c_str());
-			fflush(stderr);
-			CreateTableInfo info;
-			info.table = filename;
-			auto entry = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, subdir_path);
-			tables[filename] = std::move(entry);
-		} else {
-			fprintf(stderr, "[DEBUG TABLE_SET] missing delta_log at %s\n", delta_log_path.c_str());
-			fflush(stderr);
+		if (HasSecondPathComponent(filename, "_delta_log")) {
+			table_names[table_name] = true;
 		}
 	});
-	fprintf(stderr, "[DEBUG TABLE_SET] finished LoadEntries tables=%zu\n", tables.size());
-	fflush(stderr);
+
+	for (auto &table_name : table_names) {
+		string subdir_path = schema.schema_path + "/" + table_name.first;
+		CreateTableInfo info;
+		info.table = table_name.first;
+		auto entry = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, subdir_path);
+		tables[table_name.first] = std::move(entry);
+	}
 
 	is_loaded = true;
 }

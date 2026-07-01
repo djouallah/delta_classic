@@ -11,9 +11,36 @@
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/main/database_manager.hpp"
 
-#include <cstdio>
-
 namespace duckdb {
+
+namespace {
+
+using namespace std;
+
+string GetFirstPathComponent(const string &path) {
+	auto slash_pos = path.find('/');
+	if (slash_pos == string::npos) {
+		return path;
+	}
+	return path.substr(0, slash_pos);
+}
+
+bool HasSecondPathComponent(const string &path, const string &expected) {
+	auto first_slash = path.find('/');
+	if (first_slash == string::npos) {
+		return false;
+	}
+	auto second_slash = path.find('/', first_slash + 1);
+	string second_component;
+	if (second_slash == string::npos) {
+		second_component = path.substr(first_slash + 1);
+	} else {
+		second_component = path.substr(first_slash + 1, second_slash - first_slash - 1);
+	}
+	return second_component == expected;
+}
+
+} // namespace
 
 DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, AccessMode access_mode,
                                          bool pin_snapshot)
@@ -39,39 +66,26 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 	}
 
 	auto &fs = FileSystem::GetFileSystem(context);
-	fprintf(stderr, "[DEBUG CATALOG] DiscoverSchemas base_path=%s\n", base_path.c_str());
-	fflush(stderr);
 
 	// First pass: check if any immediate child has _delta_log (single-schema mode)
 	bool has_direct_delta_tables = false;
-	vector<string> child_dirs;
+	case_insensitive_map_t<bool> child_dirs;
 
 	fs.ListFiles(base_path, [&](const string &filename, bool is_directory) {
-		fprintf(stderr, "[DEBUG CATALOG] candidate filename=%s is_directory=%d\n", filename.c_str(),
-		        is_directory ? 1 : 0);
-		fflush(stderr);
-		if (!is_directory) {
+		if (filename.empty()) {
 			return;
 		}
-		if (filename == "_delta_log") {
-			// The base_path itself is a delta table - not a directory of tables
+		auto child_name = GetFirstPathComponent(filename);
+		if (child_name.empty() || child_name[0] == '.') {
 			return;
 		}
-		if (filename.empty() || filename[0] == '.') {
-			return;
-		}
-		string child_path = base_path + "/" + filename;
-		string delta_log_path = child_path + "/_delta_log";
-		if (fs.DirectoryExists(delta_log_path)) {
+		child_dirs[child_name] = true;
+		if (HasSecondPathComponent(filename, "_delta_log")) {
+			// The base_path itself contains direct delta tables.
 			has_direct_delta_tables = true;
-			fprintf(stderr, "[DEBUG CATALOG] direct delta table=%s\n", child_path.c_str());
-			fflush(stderr);
+			return;
 		}
-		child_dirs.push_back(filename);
 	});
-	fprintf(stderr, "[DEBUG CATALOG] has_direct_delta_tables=%d child_dirs=%zu\n", has_direct_delta_tables ? 1 : 0,
-	        child_dirs.size());
-	fflush(stderr);
 
 	if (has_direct_delta_tables) {
 		// Single-schema mode: all delta tables are direct children
@@ -84,13 +98,10 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 	} else {
 		// Multi-schema mode: each child directory is a schema
 		for (auto &dir_name : child_dirs) {
-			if (dir_name.empty() || dir_name[0] == '_') {
-				continue;
-			}
-			string schema_path = base_path + "/" + dir_name;
+			string schema_path = base_path + "/" + dir_name.first;
 			CreateSchemaInfo info;
-			info.schema = dir_name;
-			schemas[dir_name] = make_uniq<DeltaClassicSchemaEntry>(*this, info, schema_path);
+			info.schema = dir_name.first;
+			schemas[dir_name.first] = make_uniq<DeltaClassicSchemaEntry>(*this, info, schema_path);
 		}
 		// Ensure a "main" schema exists so USE db works
 		if (schemas.find(DEFAULT_SCHEMA) == schemas.end()) {
