@@ -63,8 +63,8 @@ The format check uses clang-format 11.0.1 and black 24 with DuckDB's config. To 
 ### Critical: CI rebuilds DuckDB from source on every push
 The CI pipeline compiles DuckDB from source (not prebuilt binaries) for every architecture on every push. This means each push triggers 15-30+ minutes of builds across linux_amd64, linux_arm64, linux_amd64_musl, macOS, Windows, and WASM. **Batch your changes and only push when ready.** Don't make multiple small commits pushed individually — it wastes CI time and can create cascading cancelled runs.
 
-### All architectures are required
-Do NOT exclude any architecture from the CI matrix. The extension must build on all platforms to be accepted into the DuckDB community extensions repo. If a build fails on one arch, fix the root cause — don't exclude the arch.
+### Architectures
+WASM (`wasm_mvp;wasm_eh;wasm_threads`) is excluded in `MainDistributionPipeline.yml` and must be excluded in the community-extensions descriptor (`excluded_platforms`): the Delta extension has no WASM build, so delta_classic can't work there (issue #1). Every other architecture is required: if a build fails on one, fix the root cause, don't exclude it.
 
 ### vcpkg.json is required
 Even though this extension has no external dependencies, `vcpkg.json` must exist with the overlay-ports and overlay-triplets configuration. Without it, CI fails with "Failed to load manifest from directory" errors.

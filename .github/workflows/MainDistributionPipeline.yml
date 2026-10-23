@@ -19,6 +19,8 @@ jobs:
       duckdb_version: v2.0.0
       ci_tools_version: v2.0-cyanoptera
       extension_name: delta_classic
+      # The Delta extension has no WASM build, so delta_classic can't work there
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads'
 
   code-quality-check:
     name: Code Quality Check
