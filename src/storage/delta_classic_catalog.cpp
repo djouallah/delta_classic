@@ -16,12 +16,15 @@
 
 namespace duckdb {
 
-static atomic<idx_t> next_catalog_id {0};
+static idx_t NextCatalogId() {
+	static atomic<idx_t> next_catalog_id {0};
+	return next_catalog_id++;
+}
 
 DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path,
                                          unordered_map<string, Value> delta_options)
     : Catalog(db), base_path(base_path), delta_options(std::move(delta_options)), schemas_loaded(false),
-      catalog_id(next_catalog_id++) {
+      catalog_id(NextCatalogId()) {
 }
 
 DeltaClassicCatalog::~DeltaClassicCatalog() = default;
