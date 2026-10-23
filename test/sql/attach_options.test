@@ -1,6 +1,6 @@
 # name: test/sql/attach_options.test
 # description: ATTACH options are validated and forwarded to every Delta table
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

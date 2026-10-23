@@ -115,8 +115,8 @@ void DeltaClassicCatalog::ScanSchemas(ClientContext &context, std::function<void
 }
 
 optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransaction transaction,
-                                                                    const EntryLookupInfo &schema_lookup,
-                                                                    OnEntryNotFound if_not_found) {
+                                                                   const EntryLookupInfo &schema_lookup,
+                                                                   OnEntryNotFound if_not_found) {
 	if (transaction.HasContext()) {
 		DiscoverSchemas(transaction.GetContext());
 	}
@@ -145,28 +145,28 @@ optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransa
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                          LogicalCreateTable &op, PhysicalOperator &plan) {
+                                                         LogicalCreateTable &op, PhysicalOperator &plan) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                   LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
+                                                  LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                   LogicalDelete &op, PhysicalOperator &plan) {
+                                                  LogicalDelete &op, PhysicalOperator &plan) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                   LogicalUpdate &op, PhysicalOperator &plan) {
+                                                  LogicalUpdate &op, PhysicalOperator &plan) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 
 unique_ptr<LogicalOperator> DeltaClassicCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
-                                                                  TableCatalogEntry &table,
-                                                                  unique_ptr<LogicalOperator> plan) {
+                                                                 TableCatalogEntry &table,
+                                                                 unique_ptr<LogicalOperator> plan) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 

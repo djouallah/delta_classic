@@ -1,6 +1,6 @@
 # name: test/sql/multiple_attach.test
 # description: Test attaching multiple delta_classic databases simultaneously
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

@@ -9,6 +9,7 @@ Creates test/data/ with Delta tables in two layouts:
   - single_schema/  (tables directly under root)
   - multi_schema/   (schema dirs containing table dirs)
 """
+
 import os
 import shutil
 import pyarrow as pa
@@ -37,18 +38,22 @@ def generate_single_schema():
     root = os.path.join(BASE, "single_schema")
 
     # table_a: simple integers and strings
-    t_a = pa.table({
-        "id": pa.array([1, 2, 3], type=pa.int64()),
-        "name": pa.array(["alice", "bob", "charlie"], type=pa.string()),
-        "value": pa.array([10.0, 20.0, 30.0], type=pa.float64()),
-    })
+    t_a = pa.table(
+        {
+            "id": pa.array([1, 2, 3], type=pa.int64()),
+            "name": pa.array(["alice", "bob", "charlie"], type=pa.string()),
+            "value": pa.array([10.0, 20.0, 30.0], type=pa.float64()),
+        }
+    )
     make_table(os.path.join(root, "table_a"), t_a)
 
     # table_b: different schema
-    t_b = pa.table({
-        "id": pa.array([100, 200], type=pa.int64()),
-        "category": pa.array(["x", "y"], type=pa.string()),
-    })
+    t_b = pa.table(
+        {
+            "id": pa.array([100, 200], type=pa.int64()),
+            "category": pa.array(["x", "y"], type=pa.string()),
+        }
+    )
     make_table(os.path.join(root, "table_b"), t_b)
 
 
@@ -65,25 +70,31 @@ def generate_multi_schema():
     root = os.path.join(BASE, "multi_schema")
 
     # schema1/table_x
-    t_x = pa.table({
-        "id": pa.array([1, 2, 3, 4, 5], type=pa.int64()),
-        "region": pa.array(["east", "west", "east", "west", "east"], type=pa.string()),
-        "amount": pa.array([100, 200, 150, 250, 300], type=pa.int64()),
-    })
+    t_x = pa.table(
+        {
+            "id": pa.array([1, 2, 3, 4, 5], type=pa.int64()),
+            "region": pa.array(["east", "west", "east", "west", "east"], type=pa.string()),
+            "amount": pa.array([100, 200, 150, 250, 300], type=pa.int64()),
+        }
+    )
     make_table(os.path.join(root, "schema1", "table_x"), t_x)
 
     # schema1/table_y
-    t_y = pa.table({
-        "key": pa.array(["a", "b"], type=pa.string()),
-        "val": pa.array([1, 2], type=pa.int64()),
-    })
+    t_y = pa.table(
+        {
+            "key": pa.array(["a", "b"], type=pa.string()),
+            "val": pa.array([1, 2], type=pa.int64()),
+        }
+    )
     make_table(os.path.join(root, "schema1", "table_y"), t_y)
 
     # schema2/table_z
-    t_z = pa.table({
-        "id": pa.array([10, 20, 30], type=pa.int64()),
-        "label": pa.array(["foo", "bar", "baz"], type=pa.string()),
-    })
+    t_z = pa.table(
+        {
+            "id": pa.array([10, 20, 30], type=pa.int64()),
+            "label": pa.array(["foo", "bar", "baz"], type=pa.string()),
+        }
+    )
     make_table(os.path.join(root, "schema2", "table_z"), t_z)
 
 

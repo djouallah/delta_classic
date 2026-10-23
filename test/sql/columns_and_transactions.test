@@ -1,6 +1,6 @@
 # name: test/sql/columns_and_transactions.test
 # description: Columns are known without a prior scan, and tables stay readable across transactions
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

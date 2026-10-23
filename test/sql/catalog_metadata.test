@@ -1,6 +1,6 @@
 # name: test/sql/catalog_metadata.test
 # description: Test catalog metadata: duckdb_databases, duckdb_tables, duckdb_schemas, DESCRIBE
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

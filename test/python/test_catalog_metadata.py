@@ -5,9 +5,7 @@ import pytest
 
 def test_database_appears_in_duckdb_databases(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS sdb (TYPE delta_classic)")
-    count = conn.execute(
-        "SELECT COUNT(*) FROM duckdb_databases() WHERE database_name = 'sdb'"
-    ).fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM duckdb_databases() WHERE database_name = 'sdb'").fetchone()[0]
     assert count == 1
     conn.execute("DETACH sdb")
 

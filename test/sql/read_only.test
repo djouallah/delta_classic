@@ -1,6 +1,6 @@
 # name: test/sql/read_only.test
 # description: Test that delta_classic databases reject all write operations
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

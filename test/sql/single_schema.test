@@ -1,6 +1,6 @@
 # name: test/sql/single_schema.test
 # description: Test single-schema mode where delta tables are direct children
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

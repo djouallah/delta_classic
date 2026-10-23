@@ -13,17 +13,17 @@ DeltaClassicSchemaEntry::DeltaClassicSchemaEntry(Catalog &catalog, CreateSchemaI
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateTable(CatalogTransaction transaction,
-                                                                 BoundCreateTableInfo &info) {
+                                                                BoundCreateTableInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateFunction(CatalogTransaction transaction,
-                                                                    CreateFunctionInfo &info) {
+                                                                   CreateFunctionInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
-                                                                 TableCatalogEntry &table) {
+                                                                TableCatalogEntry &table) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
@@ -32,27 +32,27 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateView(CatalogTransactio
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateSequence(CatalogTransaction transaction,
-                                                                    CreateSequenceInfo &info) {
+                                                                   CreateSequenceInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateTableFunction(CatalogTransaction transaction,
-                                                                         CreateTableFunctionInfo &info) {
+                                                                        CreateTableFunctionInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateCopyFunction(CatalogTransaction transaction,
-                                                                        CreateCopyFunctionInfo &info) {
+                                                                       CreateCopyFunctionInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreatePragmaFunction(CatalogTransaction transaction,
-                                                                          CreatePragmaFunctionInfo &info) {
+                                                                         CreatePragmaFunctionInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateCollation(CatalogTransaction transaction,
-                                                                     CreateCollationInfo &info) {
+                                                                    CreateCollationInfo &info) {
 	throw BinderException("delta_classic databases are read-only");
 }
 
@@ -61,7 +61,7 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateType(CatalogTransactio
 }
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::LookupEntry(CatalogTransaction transaction,
-                                                                 const EntryLookupInfo &lookup_info) {
+                                                                const EntryLookupInfo &lookup_info) {
 	if (lookup_info.GetCatalogType() != CatalogType::TABLE_ENTRY) {
 		return nullptr;
 	}
@@ -72,7 +72,7 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::LookupEntry(CatalogTransacti
 }
 
 void DeltaClassicSchemaEntry::Scan(ClientContext &context, CatalogType type,
-                                    const std::function<void(CatalogEntry &)> &callback) {
+                                   const std::function<void(CatalogEntry &)> &callback) {
 	if (type != CatalogType::TABLE_ENTRY) {
 		return;
 	}

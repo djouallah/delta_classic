@@ -1,6 +1,6 @@
 # name: test/sql/pin_snapshot.test
 # description: Test that PIN_SNAPSHOT option is accepted and passed through
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

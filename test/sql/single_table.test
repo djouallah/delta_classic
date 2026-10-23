@@ -1,6 +1,6 @@
 # name: test/sql/single_table.test
 # description: Attaching the path of a single Delta table exposes it as main.<directory name>
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

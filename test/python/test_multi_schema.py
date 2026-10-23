@@ -21,8 +21,7 @@ def test_tables_in_schemas(conn):
     assert [r[0] for r in tables_s1] == ["table_x", "table_y"]
 
     tables_s2 = conn.execute(
-        "SELECT table_name FROM duckdb_tables() "
-        "WHERE database_name = 'mdb' AND schema_name = 'schema2'"
+        "SELECT table_name FROM duckdb_tables() " "WHERE database_name = 'mdb' AND schema_name = 'schema2'"
     ).fetchall()
     assert [r[0] for r in tables_s2] == [("table_z",)[0]]
     conn.execute("DETACH mdb")

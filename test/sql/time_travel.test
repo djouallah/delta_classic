@@ -1,6 +1,6 @@
 # name: test/sql/time_travel.test
 # description: AT (VERSION / TIMESTAMP) and ATTACH ... TIMESTAMP are passed through to the Delta extension
-# group: [delta_classic]
+# group: [sql]
 
 # The events table carries in-commit timestamps: its commits sit at exactly 2023-11-14 22:13:20, 22:14:20 and
 # 22:15:20 UTC regardless of when the files were checked out. Row counts identify the version: v0 has 10 rows,

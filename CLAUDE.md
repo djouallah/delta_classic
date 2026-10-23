@@ -55,7 +55,10 @@ Targets DuckDB v2.0.0. Uses `extension-ci-tools` and `duckdb` as git submodules 
 
 ## CI/CD
 
-GitHub Actions workflow at `.github/workflows/MainDistributionPipeline.yml` — builds on all platforms using `duckdb/extension-ci-tools` reusable workflows.
+GitHub Actions workflow at `.github/workflows/MainDistributionPipeline.yml`, identical to upstream [duckdb/extension-template](https://github.com/duckdb/extension-template): runs on every push and PR, builds and tests on all platforms (`_extension_distribution.yml`) and runs the code quality check (`_extension_code_quality.yml`: clang-format, black, clang-tidy). Keep the build files (`CMakeLists.txt`, `Makefile`, `extension_config.cmake`, `vcpkg.json`, `.clang-format`/`.clang-tidy`/`.editorconfig` symlinks into `duckdb/`) in line with the template.
+
+### Formatting
+The format check uses clang-format 11.0.1 and black 24 with DuckDB's config. To fix locally (a lint pass, not a build): in a venv with `clang_format==11.0.1 'black==24.*' cmake-format`, copy `duckdb/.clang-format` to the repo root temporarily (the symlink isn't materialized on Windows, and without it clang-format silently uses LLVM style), run `python duckdb/scripts/format.py --all --fix --noconfirm --workdir <repo> --directories src test`, then `git checkout -- .clang-format`.
 
 ### Critical: CI rebuilds DuckDB from source on every push
 The CI pipeline compiles DuckDB from source (not prebuilt binaries) for every architecture on every push. This means each push triggers 15-30+ minutes of builds across linux_amd64, linux_arm64, linux_amd64_musl, macOS, Windows, and WASM. **Batch your changes and only push when ready.** Don't make multiple small commits pushed individually — it wastes CI time and can create cascading cancelled runs.

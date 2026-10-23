@@ -1,6 +1,6 @@
 # name: test/sql/reattach.test
 # description: Test detach and re-attach, and ATTACH OR REPLACE behavior
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

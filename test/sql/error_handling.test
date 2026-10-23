@@ -1,6 +1,6 @@
 # name: test/sql/error_handling.test
 # description: Test error handling for invalid paths, missing tables, and missing schemas
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

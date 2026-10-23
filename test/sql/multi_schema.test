@@ -1,6 +1,6 @@
 # name: test/sql/multi_schema.test
 # description: Test multi-schema mode where child dirs are schemas containing tables
-# group: [delta_classic]
+# group: [sql]
 
 require delta_classic
 

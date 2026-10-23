@@ -50,8 +50,9 @@ static unique_ptr<Catalog> DeltaClassicAttach(optional_ptr<StorageExtensionInfo>
 	return make_uniq<DeltaClassicCatalog>(db, base_path, std::move(delta_options));
 }
 
-static unique_ptr<TransactionManager> DeltaClassicCreateTransactionManager(
-    optional_ptr<StorageExtensionInfo> storage_info, AttachedDatabase &db, Catalog &catalog) {
+static unique_ptr<TransactionManager>
+DeltaClassicCreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info, AttachedDatabase &db,
+                                     Catalog &catalog) {
 	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
 	return make_uniq<DeltaClassicTransactionManager>(db, dc_catalog);
 }
