@@ -7,6 +7,7 @@
 #include "duckdb/catalog/entry_lookup_info.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/exception/catalog_exception.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database_manager.hpp"
@@ -66,8 +67,7 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 	return *attached;
 }
 
-TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context,
-                                                       optional_ptr<BoundAtClause> at_clause) {
+TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context, optional_ptr<BoundAtClause> at_clause) {
 	auto &attached = EnsureAttached(context);
 	auto &inner_catalog = attached.GetCatalog();
 	CatalogTransaction inner_transaction(inner_catalog, context);
@@ -89,8 +89,7 @@ static string ResolvedKey(const string &path, optional_ptr<BoundAtClause> at_cla
 	return path + "\n" + at_clause->Unit().GetIdentifierName() + "\n" + at_clause->GetValue().ToString();
 }
 
-DeltaClassicTableEntry &DeltaClassicTableEntry::Resolve(ClientContext &context,
-                                                        optional_ptr<BoundAtClause> at_clause) {
+DeltaClassicTableEntry &DeltaClassicTableEntry::Resolve(ClientContext &context, optional_ptr<BoundAtClause> at_clause) {
 	if (inner) {
 		return *this;
 	}
