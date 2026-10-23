@@ -12,6 +12,7 @@
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/storage/database_size.hpp"
 
 namespace duckdb {
