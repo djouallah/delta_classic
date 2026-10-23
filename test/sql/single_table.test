@@ -1,0 +1,44 @@
+# name: test/sql/single_table.test
+# description: Attaching the path of a single Delta table exposes it as main.<directory name>
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+statement ok
+ATTACH 'test/data/single_schema/table_a' AS one (TYPE delta_classic);
+
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'one';
+----
+table_a
+
+query ITR
+SELECT id, name, value FROM one.main.table_a ORDER BY id;
+----
+1	alice	10.0
+2	bob	20.0
+3	charlie	30.0
+
+statement ok
+DETACH one;
+
+# A trailing slash is ignored
+statement ok
+ATTACH 'test/data/single_schema/table_b/' AS one (TYPE delta_classic);
+
+query I
+SELECT COUNT(*) FROM one.main.table_b;
+----
+2
+
+statement ok
+DETACH one;
