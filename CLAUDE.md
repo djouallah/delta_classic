@@ -51,7 +51,7 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_F
 
 **There is no local build or test environment.** All building and testing happens via CI (GitHub Actions). Do not attempt to build or run tests locally — just push to trigger CI.
 
-Targets DuckDB v2.0.0. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org). See **Branches** below for the older DuckDB versions.
+Targets DuckDB v2.0.0. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org). DuckDB 2.0 only.
 
 ## CI/CD
 
@@ -76,12 +76,8 @@ The workflows use `extension-ci-tools@v2.0-cyanoptera`, with `duckdb_version: v2
 
 - **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`). duckdb-delta `main` is the DuckDB 2.0 line.
 
-## Branches
-- `main` → DuckDB v2.0.0 (community-extensions `ref`)
-- `v1.5` → DuckDB v1.5 (community-extensions `variegata`)
-- `v145` → DuckDB v1.4.5 (community-extensions `andium`)
-
-Integration-test workflows are `workflow_run` triggered, which always runs the workflow file from `main`, so the per-branch files (`IntegrationTestLocalFileSystem-v15.yml`, `-v145.yml`) live on `main`.
+## Supported versions
+DuckDB v2.0.0 only, from `main`. Older DuckDB versions (the `v1.5`, `v145`, `v144` branches) are not supported and get no fixes.
 - **Build**: No external libraries. Pure C++ against DuckDB headers.
 
 ## Development Rules
