@@ -1,5 +1,6 @@
 #include "storage/delta_classic_table_set.hpp"
 #include "storage/delta_classic_catalog.hpp"
+#include "storage/delta_classic_path.hpp"
 #include "storage/delta_classic_schema_entry.hpp"
 #include "storage/delta_classic_table_entry.hpp"
 
@@ -12,6 +13,25 @@ namespace duckdb {
 DeltaClassicTableSet::DeltaClassicTableSet(DeltaClassicSchemaEntry &schema) : schema(schema), is_loaded(false) {
 }
 
+void DeltaClassicTableSet::AddEntry(const string &name, const string &path) {
+	if (tables.find(name) != tables.end()) {
+		// Case-insensitive collision (e.g. "Orders" and "orders" on S3): the first one listed wins
+		return;
+	}
+	auto &catalog = schema.ParentCatalog().Cast<DeltaClassicCatalog>();
+	CreateTableInfo info;
+	info.table = name;
+	tables[name] = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, path);
+}
+
+void DeltaClassicTableSet::SetEntries(const vector<pair<string, string>> &entries) {
+	lock_guard<mutex> lock(entry_lock);
+	for (auto &entry : entries) {
+		AddEntry(entry.first, entry.second);
+	}
+	is_loaded = true;
+}
+
 void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 	if (is_loaded) {
 		return;
@@ -21,27 +41,11 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 		return;
 	}
 
-	auto &catalog = schema.ParentCatalog().Cast<DeltaClassicCatalog>();
 	auto &fs = FileSystem::GetFileSystem(context);
-
-	fs.ListFiles(schema.schema_path, [&](const string &filename, bool is_directory) {
-		if (!is_directory) {
-			return;
-		}
-		// Skip hidden and internal directories
-		if (filename.empty() || filename[0] == '.' || filename[0] == '_') {
-			return;
-		}
-		string subdir_path = schema.schema_path + "/" + filename;
-		string delta_log_path = subdir_path + "/_delta_log";
-
-		if (fs.DirectoryExists(delta_log_path)) {
-			CreateTableInfo info;
-			info.table = filename;
-			auto entry = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, subdir_path);
-			tables[filename] = std::move(entry);
-		}
-	});
+	auto listing = DeltaClassicListDirectory(fs, schema.schema_path);
+	for (auto &table_name : listing.tables) {
+		AddEntry(table_name, DeltaClassicJoinPath(schema.schema_path, table_name));
+	}
 
 	is_loaded = true;
 }

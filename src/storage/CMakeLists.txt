@@ -1,5 +1,6 @@
 add_library(delta_classic_ext_storage OBJECT
     delta_classic_catalog.cpp
+    delta_classic_path.cpp
     delta_classic_schema_entry.cpp
     delta_classic_table_entry.cpp
     delta_classic_table_set.cpp

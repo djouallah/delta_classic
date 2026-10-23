@@ -51,6 +51,8 @@ void DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
 	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
 	if (dc_catalog.pin_snapshot) {
 		opts["pin_snapshot"] = Value::BOOLEAN(true);
+		// The Delta extension reads its options from the AttachInfo
+		info.options["pin_snapshot"] = Value::BOOLEAN(true);
 	}
 
 	auto &config = DBConfig::GetConfig(context);

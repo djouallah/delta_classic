@@ -3,6 +3,8 @@
 #include "duckdb/catalog/catalog_entry.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/mutex.hpp"
+#include "duckdb/common/pair.hpp"
+#include "duckdb/common/vector.hpp"
 #include "storage/delta_classic_table_entry.hpp"
 
 namespace duckdb {
@@ -15,12 +17,15 @@ class DeltaClassicTableSet {
 public:
 	explicit DeltaClassicTableSet(DeltaClassicSchemaEntry &schema);
 
+	//! Fills the set from a listing that already found its tables, as (name, path) pairs, so it is not listed again
+	void SetEntries(const vector<pair<string, string>> &entries);
 	optional_ptr<CatalogEntry> GetEntry(ClientContext &context, const EntryLookupInfo &lookup);
 	void Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback);
 	void ScanNoContext(const std::function<void(CatalogEntry &)> &callback);
 
 private:
 	void LoadEntries(ClientContext &context);
+	void AddEntry(const string &name, const string &path);
 
 	DeltaClassicSchemaEntry &schema;
 	mutex entry_lock;

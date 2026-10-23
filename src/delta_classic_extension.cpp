@@ -1,5 +1,6 @@
 #include "delta_classic_extension.hpp"
 #include "storage/delta_classic_catalog.hpp"
+#include "storage/delta_classic_path.hpp"
 #include "storage/delta_classic_transaction_manager.hpp"
 
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -16,11 +17,7 @@ static unique_ptr<Catalog> DeltaClassicAttach(optional_ptr<StorageExtensionInfo>
 	// Force read-only
 	options.access_mode = AccessMode::READ_ONLY;
 
-	string base_path = info.path;
-	// Normalize: strip trailing slash
-	while (!base_path.empty() && (base_path.back() == '/' || base_path.back() == '\\')) {
-		base_path.pop_back();
-	}
+	auto base_path = DeltaClassicTrimPath(info.path);
 
 	// Check for PIN_SNAPSHOT in options
 	bool pin_snapshot = false;
