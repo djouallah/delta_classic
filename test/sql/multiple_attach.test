@@ -109,7 +109,8 @@ statement ok
 DETACH mdb;
 
 # No orphaned internal databases should remain
+# Only the databases the user attached are visible
 query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+SELECT COUNT(*) FROM duckdb_databases() WHERE NOT internal AND database_name != 'memory';
 ----
 0

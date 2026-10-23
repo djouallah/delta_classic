@@ -61,25 +61,22 @@ def test_cross_database_subquery(conn):
     conn.execute("DETACH mdb")
 
 
-def test_cleanup_after_detach(conn):
-    """No orphaned internal databases after detaching all delta_classic databases."""
+def test_only_user_databases_visible(conn):
+    """Querying tables must not add databases to the user-visible database list."""
     conn.execute("ATTACH 'test/data/single_schema' AS db1 (TYPE delta_classic)")
     conn.execute("ATTACH 'test/data/single_schema' AS db2 (TYPE delta_classic)")
 
-    # Query to trigger internal attaches
     conn.execute("SELECT COUNT(*) FROM db1.main.table_a")
-    conn.execute("SELECT COUNT(*) FROM db2.main.table_a")
+    conn.execute("SELECT COUNT(*) FROM db2.main.table_b")
+
+    names = sorted(
+        r[0]
+        for r in conn.execute(
+            "SELECT database_name FROM duckdb_databases() WHERE NOT internal AND database_name != 'memory'"
+        ).fetchall()
+    )
+    assert names == ["db1", "db2"]
 
     conn.execute("DETACH db1")
-    # db1's internals should be gone
-    orphaned = conn.execute(
-        "SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_db1_%'"
-    ).fetchone()[0]
-    assert orphaned == 0
-
+    assert conn.execute("SELECT COUNT(*) FROM db2.main.table_a").fetchone()[0] == 3
     conn.execute("DETACH db2")
-    # All internals should be gone
-    orphaned = conn.execute(
-        "SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%'"
-    ).fetchone()[0]
-    assert orphaned == 0

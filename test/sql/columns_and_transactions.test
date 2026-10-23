@@ -1,0 +1,72 @@
+# name: test/sql/columns_and_transactions.test
+# description: Columns are known without a prior scan, and tables stay readable across transactions
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+statement ok
+ATTACH 'test/data/single_schema' AS cdb (TYPE delta_classic);
+
+# DESCRIBE works before the table has ever been scanned
+query TTTTTT
+DESCRIBE cdb.main.table_b;
+----
+id	BIGINT	YES	NULL	NULL	NULL
+category	VARCHAR	YES	NULL	NULL	NULL
+
+# A rolled back transaction doesn't leave the table unreadable
+statement ok
+BEGIN;
+
+query I
+SELECT COUNT(*) FROM cdb.main.table_a;
+----
+3
+
+statement ok
+ROLLBACK;
+
+query I
+SELECT COUNT(*) FROM cdb.main.table_a;
+----
+3
+
+# Several statements in one transaction
+statement ok
+BEGIN;
+
+query I
+SELECT COUNT(*) FROM cdb.main.table_a;
+----
+3
+
+query I
+SELECT COUNT(*) FROM cdb.main.table_b;
+----
+2
+
+statement ok
+COMMIT;
+
+# A failing statement doesn't break later ones
+statement error
+SELECT no_such_column FROM cdb.main.table_a;
+----
+no_such_column
+
+query I
+SELECT COUNT(*) FROM cdb.main.table_a;
+----
+3
+
+statement ok
+DETACH cdb;

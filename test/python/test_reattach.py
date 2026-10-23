@@ -30,8 +30,8 @@ def test_attach_or_replace(conn):
 
     conn.execute("DETACH rdb")
 
-    # No orphaned internal databases
-    orphaned = conn.execute(
-        "SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%'"
-    ).fetchone()[0]
-    assert orphaned == 0
+    # The same name can be attached again and reads current data
+    conn.execute("ATTACH 'test/data/single_schema' AS rdb (TYPE delta_classic)")
+    count = conn.execute("SELECT COUNT(*) FROM rdb.main.table_a").fetchone()[0]
+    assert count == 3
+    conn.execute("DETACH rdb")

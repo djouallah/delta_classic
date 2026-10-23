@@ -4,7 +4,7 @@ A minimal DuckDB extension that lets you attach a **directory of Delta tables** 
 
 ## Installation
 
-Requires DuckDB v1.4.4 or later. Fabric notebook uses an old version (1.2.2), so you need to upgrade
+Requires DuckDB v2.0.0 (builds for v1.5 and v1.4.5 are also published, without the time travel features). Fabric notebook uses an old version, so you need to upgrade
 
 ```python
 !pip install duckdb --upgrade
@@ -72,10 +72,48 @@ CH0030/
 ```
 ```sql
 ATTACH '.../CH0030' AS db (TYPE delta_classic);
-SELECT * FROM db.CH0030.orders;
+SELECT * FROM db.main.orders;
 ```
 
-Works with any path DuckDB supports: local, S3, ABFSS, GCS.
+**Single table** — when the path is itself a Delta table:
+```sql
+ATTACH '.../CH0030/orders' AS db (TYPE delta_classic);
+SELECT * FROM db.main.orders;
+```
+
+Directories starting with `.` or `_` are skipped.
+
+Works with any path DuckDB supports: local, S3 (including S3-compatible stores like MinIO), ABFSS, GCS.
+
+## Options
+
+```sql
+ATTACH 's3://bucket/lake' AS db (
+    TYPE delta_classic,
+    PIN_SNAPSHOT,                          -- read each table's snapshot once, then reuse it
+    TIMESTAMP '2026-10-01 00:00:00+00',    -- read every table as of this point in time
+    PUSHDOWN_FILTERS 'all',                -- none | all | constant_only | dynamic_only
+    PUSHDOWN_PARTITION_INFO true
+);
+```
+
+All options are passed to the Delta extension for each table. `VERSION` is not supported, because Delta versions are per table: use `TIMESTAMP`, or `AT (VERSION => ...)` on a single table.
+
+## Time Travel
+
+```sql
+SELECT * FROM db.main.orders AT (VERSION => 42);
+SELECT * FROM db.main.orders AT (TIMESTAMP => TIMESTAMPTZ '2026-10-01 00:00:00+00');
+```
+
+`AT` overrides an attached `TIMESTAMP`.
+
+## Limitations
+
+- Read-only.
+- Not available in DuckDB-WASM, because the Delta extension has no WASM build.
+- Tables and schemas are listed once, on first use. Attach again to see new ones.
+- `duckdb_columns()` and `information_schema.columns` only show the columns of tables already queried in the current transaction (listing every column would read every Delta log). `DESCRIBE` always works.
 
 ## Why "Classic"?
 
@@ -99,4 +137,4 @@ This extension just makes that pattern first-class in DuckDB.
 
 Honestly, AI is becoming good enough to generate full extension out of thin air
 
-Requires DuckDB v1.4.4 or later.
+Requires DuckDB v2.0.0.

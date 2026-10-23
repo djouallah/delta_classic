@@ -7,41 +7,51 @@ A DuckDB C++ StorageExtension that registers `TYPE delta_classic` for `ATTACH`. 
 ## Architecture
 
 ```
-ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT)
-  → DeltaClassicCatalog(base_path, pin_snapshot)
-    → DiscoverSchemas: FileSystem::ListFiles + _delta_log check
+ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_FILTERS ...)
+  → DeltaClassicCatalog(base_path, delta_options)
+    → DiscoverSchemas: DeltaClassicListDirectory (delta_classic_path.cpp)
       → DeltaClassicSchemaEntry per schema dir
-        → DeltaClassicTableSet: lazy list of subdirs with _delta_log
-          → DeltaClassicTableEntry: on first query, internally runs
-            ATTACH 'path/table' AS __dc_internal (TYPE DELTA, PIN_SNAPSHOT)
-            then delegates GetScanFunction to that internal table
+        → DeltaClassicTableSet: one "listed" DeltaClassicTableEntry per table (no columns)
+          → on lookup, Resolve(): internally runs (once, re-done after a ROLLBACK)
+            ATTACH 'path/table' AS __dc_<catalog id>_<n> (TYPE DELTA, HIDDEN, READ_ONLY, <delta_options>)
+            then looks the table up there (passing the AT clause) and returns a per-transaction
+            "resolved" DeltaClassicTableEntry that copies its columns and forwards scans/stats to it
 ```
 
 ### Schema Discovery
-- If immediate children have `_delta_log` → **single schema** (name = last path component)
+- If the path itself has `_delta_log` → **single table** (`main.<last path component>`)
+- If immediate children have `_delta_log` → **single schema** (named `main`)
 - Otherwise → **multi-schema** (each child dir = schema, grandchildren = tables)
+
+### Listing styles (important for S3)
+- Local and Azure `ListFiles` are flat: one entry per child, with `is_directory` set.
+- httpfs (S3/GCS) `ListFiles` is a recursive `**` glob: every object key below the directory, relative to it, with `is_directory=false`. `S3FileSystem::DirectoryExists` returns true for any prefix, so never use it to probe for `_delta_log`.
+- `DeltaClassicListDirectory` handles both; a recursive listing of the base path also yields every schema's tables, so schemas aren't listed again.
 
 ### Key Files
 | File | What It Does |
 |---|---|
 | `src/delta_classic_extension.cpp` | Entry point. Registers `delta_classic` storage type, parses PIN_SNAPSHOT from ATTACH options |
-| `src/storage/delta_classic_catalog.cpp` | Virtual catalog. Scans directory to discover schemas (single vs multi mode) |
+| `src/storage/delta_classic_catalog.cpp` | Virtual catalog. Discovers schemas (single table / single / multi schema), hands out internal DB names, detaches them on DETACH |
+| `src/storage/delta_classic_path.cpp` | Path helpers and `DeltaClassicListDirectory` (flat and recursive listings) |
 | `src/storage/delta_classic_schema_entry.cpp` | Read-only schema. Delegates table lookups to table set |
-| `src/storage/delta_classic_table_set.cpp` | Lists subdirs via `FileSystem::ListFiles`, checks `_delta_log` existence |
-| `src/storage/delta_classic_table_entry.cpp` | The core: internally ATTACHes each delta table on first access, delegates scan |
-| `src/storage/delta_classic_transaction*.cpp` | No-op read-only transaction plumbing |
+| `src/storage/delta_classic_table_set.cpp` | Lists the tables of a schema (unless discovery already did) |
+| `src/storage/delta_classic_table_entry.cpp` | The core: internal ATTACH per table, per-transaction resolution, forwards scans/stats/virtual columns/AT clause |
+| `src/storage/delta_classic_transaction*.cpp` | Read-only transactions; cache the resolved table entries of a transaction |
 
 ### Key Design Decisions
 1. **Internal ATTACH, not delta_scan** — `PIN_SNAPSHOT` only works with `ATTACH TYPE DELTA`, not `delta_scan()` directly
 2. **Lazy everything** — schemas discovered on first lookup, tables listed on first access, internal ATTACH on first query
 3. **FileSystem abstraction** — works with local, S3, ABFSS, GCS paths automatically
 4. **Read-only** — all write operations throw
+5. **Delta options go in `AttachInfo::options`** — the Delta extension reads its options (PIN_SNAPSHOT, TIMESTAMP, ...) from the `AttachInfo`, not from `AttachOptions`
+6. **Per-transaction table entries** — like duckdb-delta, so columns match the snapshot being read and nothing shared is mutated
 
 ## Building & Testing
 
 **There is no local build or test environment.** All building and testing happens via CI (GitHub Actions). Do not attempt to build or run tests locally — just push to trigger CI.
 
-Targets DuckDB v1.5.0. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org). The `v144` branch preserves compatibility with DuckDB v1.4.4.
+Targets DuckDB v2.0.0. Uses `extension-ci-tools` and `duckdb` as git submodules (both from `duckdb/` org). See **Branches** below for the older DuckDB versions.
 
 ## CI/CD
 
@@ -57,17 +67,24 @@ Do NOT exclude any architecture from the CI matrix. The extension must build on 
 Even though this extension has no external dependencies, `vcpkg.json` must exist with the overlay-ports and overlay-triplets configuration. Without it, CI fails with "Failed to load manifest from directory" errors.
 
 ### Workflow pinning
-The workflow, `duckdb_version`, and `ci_tools_version` are all pinned to `v1.5.0`. The duckdb submodule tracks the `v1.5-variegata` branch and extension-ci-tools tracks the `v1.5.0` branch.
+The workflows use `extension-ci-tools@v2.0-cyanoptera`, with `duckdb_version: v2.0.0` and `ci_tools_version: v2.0-cyanoptera`. The duckdb submodule is at the `v2.0.0` tag and extension-ci-tools at the `v2.0-cyanoptera` branch.
 
 ## Dependencies
 
-- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`).
+- **Runtime**: Requires the Delta extension to be loaded (`LOAD delta`). duckdb-delta `main` is the DuckDB 2.0 line.
+
+## Branches
+- `main` → DuckDB v2.0.0 (community-extensions `ref`)
+- `v1.5` → DuckDB v1.5 (community-extensions `variegata`)
+- `v145` → DuckDB v1.4.5 (community-extensions `andium`)
+
+Integration-test workflows are `workflow_run` triggered, which always runs the workflow file from `main`, so the per-branch files (`IntegrationTestLocalFileSystem-v15.yml`, `-v145.yml`) live on `main`.
 - **Build**: No external libraries. Pure C++ against DuckDB headers.
 
 ## Development Rules
 
 ### Always verify APIs against local headers before writing code
-DuckDB has no stable C++ API. Methods, signatures, and includes change between versions. The `duckdb` submodule at `duckdb/src/include/` has all v1.5 headers locally. **Before using any DuckDB API, grep the local headers to confirm it exists:**
+DuckDB has no stable C++ API. Methods, signatures, and includes change between versions. The `duckdb` submodule at `duckdb/src/include/` has all v2.0 headers locally. **Before using any DuckDB API, grep the local headers to confirm it exists:**
 ```bash
 # Check if a method exists
 grep "TryGetContext" duckdb/src/include/duckdb/catalog/catalog_transaction.hpp
@@ -95,5 +112,5 @@ The `__dc_*` internal databases are an implementation detail. Tests must ONLY in
 
 ## Reference Extensions
 
-- [duckdb/duckdb-delta](https://github.com/duckdb/duckdb-delta) — the Delta extension this delegates to
+- [duckdb/duckdb-delta](https://github.com/duckdb/duckdb-delta) (branch `main`) — the Delta extension this delegates to
 - [hugr-lab/mssql-extension](https://github.com/hugr-lab/mssql-extension) — example community extension with proper repo structure

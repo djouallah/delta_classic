@@ -1,113 +1,161 @@
 #include "storage/delta_classic_table_entry.hpp"
 #include "storage/delta_classic_catalog.hpp"
+#include "storage/delta_classic_transaction.hpp"
 
 #include "duckdb/catalog/catalog.hpp"
-#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/catalog/entry_lookup_info.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/common/exception/binder_exception.hpp"
+#include "duckdb/common/exception/catalog_exception.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database_manager.hpp"
-#include "duckdb/main/config.hpp"
-#include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/parsed_data/attach_info.hpp"
-#include "duckdb/storage/table_storage_info.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 #include "duckdb/storage/statistics/base_statistics.hpp"
-#include "duckdb/main/attached_database.hpp"
+#include "duckdb/storage/table_storage_info.hpp"
 
 namespace duckdb {
 
 DeltaClassicTableEntry::DeltaClassicTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
                                                const string &delta_table_path)
-    : TableCatalogEntry(catalog, schema, info), delta_table_path(delta_table_path), is_attached(false) {
-	// Generate a unique internal database name to avoid collisions
-	internal_db_name = "__dc_" + catalog.GetName() + "_" + schema.name + "_" + info.table;
+    : TableCatalogEntry(catalog, schema, info), delta_table_path(delta_table_path) {
 }
 
-unique_ptr<BaseStatistics> DeltaClassicTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
-	return nullptr;
+DeltaClassicTableEntry::DeltaClassicTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info,
+                                               const string &delta_table_path, TableCatalogEntry &inner_p)
+    : TableCatalogEntry(catalog, schema, info), delta_table_path(delta_table_path),
+      columns(inner_p.GetColumns().Copy()), inner(&inner_p) {
 }
 
-void DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
-	if (is_attached) {
-		return;
-	}
+const ColumnList &DeltaClassicTableEntry::GetColumns() const {
+	return columns;
+}
 
+AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context) {
+	lock_guard<mutex> guard(attach_lock);
 	auto &db_manager = DatabaseManager::Get(context);
-
-	// Check if already attached (e.g. from a previous call)
-	if (db_manager.GetDatabase(context, internal_db_name)) {
-		is_attached = true;
-		return;
+	if (!internal_db_name.empty()) {
+		auto existing = db_manager.GetDatabase(context, Identifier(internal_db_name));
+		if (existing) {
+			return *existing;
+		}
+		// The ATTACH is part of the transaction that made it: a ROLLBACK detaches it again. Attach anew.
 	}
+
+	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
+	internal_db_name = dc_catalog.CreateInternalDbName();
 
 	// Use the programmatic attach API (not context.Query which deadlocks during binding)
 	AttachInfo info;
-	info.name = internal_db_name;
+	info.name = Identifier(internal_db_name);
 	info.path = delta_table_path;
-	info.on_conflict = OnCreateConflict::IGNORE_ON_CONFLICT;
+	// The Delta extension reads its options from the AttachInfo
+	info.options = dc_catalog.delta_options;
 
-	unordered_map<string, Value> opts;
-	opts["type"] = Value("delta");
-	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
-	if (dc_catalog.pin_snapshot) {
-		opts["pin_snapshot"] = Value::BOOLEAN(true);
+	auto attach_options = dc_catalog.delta_options;
+	attach_options["type"] = Value("delta");
+	// Keep the internal database out of SHOW DATABASES / duckdb_databases()
+	attach_options["hidden"] = Value::BOOLEAN(true);
+	AttachOptions options(attach_options, AccessMode::READ_ONLY);
+
+	auto attached = db_manager.AttachDatabase(context, info, options);
+	if (!attached) {
+		throw IOException("Failed to attach Delta table \"%s\" at \"%s\"", name, delta_table_path);
 	}
-
-	auto &config = DBConfig::GetConfig(context);
-	AttachOptions options(opts, config.options.access_mode);
-
-	db_manager.AttachDatabase(context, info, options);
-
-	dc_catalog.RegisterInternalDb(internal_db_name);
-	is_attached = true;
+	return *attached;
 }
 
-TableCatalogEntry &DeltaClassicTableEntry::GetInternalTableEntry(ClientContext &context) {
-	EnsureAttached(context);
-
-	// Look up the table in the internally attached delta database
-	auto &db_manager = DatabaseManager::Get(context);
-	auto db_entry = db_manager.GetDatabase(context, internal_db_name);
-	if (!db_entry) {
-		throw InternalException("Internal delta database '%s' not found after attach", internal_db_name);
+TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context,
+                                                       optional_ptr<BoundAtClause> at_clause) {
+	auto &attached = EnsureAttached(context);
+	auto &inner_catalog = attached.GetCatalog();
+	CatalogTransaction inner_transaction(inner_catalog, context);
+	auto &inner_schema = inner_catalog.GetSchema(inner_transaction, Identifier::DefaultSchema());
+	// A Delta catalog holds a single table, named after the catalog
+	EntryLookupInfo inner_lookup(CatalogType::TABLE_ENTRY, QualifiedName(inner_catalog.GetName()), at_clause,
+	                             QueryErrorContext());
+	auto entry = inner_schema.LookupEntry(inner_transaction, inner_lookup);
+	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
+		throw CatalogException("Delta table \"%s\" at \"%s\" could not be read", name, delta_table_path);
 	}
+	return entry->Cast<TableCatalogEntry>();
+}
 
-	auto &internal_catalog = db_entry->GetCatalog();
-
-	// Delta attach puts the table in the default schema - scan to find it
-	auto &internal_schema = internal_catalog.GetSchema(context, DEFAULT_SCHEMA);
-	optional_ptr<CatalogEntry> table_entry;
-	internal_schema.Scan(context, CatalogType::TABLE_ENTRY, [&](CatalogEntry &entry) {
-		if (!table_entry) {
-			table_entry = &entry;
-		}
-	});
-
-	if (!table_entry) {
-		throw InternalException("No table found in internally attached delta database '%s'", internal_db_name);
+static string ResolvedKey(const string &path, optional_ptr<BoundAtClause> at_clause) {
+	if (!at_clause) {
+		return path;
 	}
+	return path + "\n" + at_clause->Unit().GetIdentifierName() + "\n" + at_clause->GetValue().ToString();
+}
 
-	return table_entry->Cast<TableCatalogEntry>();
+DeltaClassicTableEntry &DeltaClassicTableEntry::Resolve(ClientContext &context,
+                                                        optional_ptr<BoundAtClause> at_clause) {
+	if (inner) {
+		return *this;
+	}
+	auto &transaction = DeltaClassicTransaction::Get(context, catalog);
+	auto key = ResolvedKey(delta_table_path, at_clause);
+	auto existing = transaction.GetResolvedTable(key);
+	if (existing) {
+		return *existing;
+	}
+	auto &inner_entry = LookupInner(context, at_clause);
+	CreateTableInfo info(schema, name);
+	auto resolved = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, delta_table_path, inner_entry);
+	return transaction.AddResolvedTable(key, std::move(resolved));
+}
+
+optional_ptr<DeltaClassicTableEntry> DeltaClassicTableEntry::TryGetResolved(ClientContext &context) {
+	if (inner) {
+		return this;
+	}
+	auto &transaction = DeltaClassicTransaction::Get(context, catalog);
+	return transaction.GetResolvedTable(ResolvedKey(delta_table_path, nullptr));
+}
+
+DeltaClassicTableEntry &DeltaClassicTableEntry::GetResolved(ClientContext &context) {
+	return Resolve(context, nullptr);
+}
+
+unique_ptr<BaseStatistics> DeltaClassicTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
+	if (!inner) {
+		return nullptr;
+	}
+	return inner->GetStatistics(context, column_id);
 }
 
 TableFunction DeltaClassicTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
-	auto &internal_table = GetInternalTableEntry(context);
-	auto result = internal_table.GetScanFunction(context, bind_data);
+	auto &resolved = GetResolved(context);
+	return resolved.inner->GetScanFunction(context, bind_data);
+}
 
-	// Update columns on this table entry so DESCRIBE works
-	auto &internal_columns = internal_table.GetColumns();
-	for (auto &col : internal_columns.Logical()) {
-		if (!ColumnExists(col.Name())) {
-			ColumnDefinition new_col(col.Name(), col.Type());
-			columns.AddColumn(std::move(new_col));
-		}
-	}
-
-	return result;
+TableFunction DeltaClassicTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+                                                      const EntryLookupInfo &lookup_info) {
+	auto &resolved = Resolve(context, lookup_info.GetAtClause());
+	// The Delta extension only reads the AT clause from the lookup
+	return resolved.inner->GetScanFunction(context, bind_data, lookup_info);
 }
 
 TableStorageInfo DeltaClassicTableEntry::GetStorageInfo(ClientContext &context) {
-	return TableStorageInfo();
+	if (!inner) {
+		return TableStorageInfo();
+	}
+	return inner->GetStorageInfo(context);
+}
+
+virtual_column_map_t DeltaClassicTableEntry::GetVirtualColumns() const {
+	if (!inner) {
+		return TableCatalogEntry::GetVirtualColumns();
+	}
+	return inner->GetVirtualColumns();
+}
+
+vector<column_t> DeltaClassicTableEntry::GetRowIdColumns() const {
+	if (!inner) {
+		return TableCatalogEntry::GetRowIdColumns();
+	}
+	return inner->GetRowIdColumns();
 }
 
 } // namespace duckdb

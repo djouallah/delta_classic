@@ -1,9 +1,9 @@
-name: Integration Test Local FileSystem (v1.5-pre)
+name: Integration Test Local FileSystem (v1.5)
 on:
   workflow_run:
     workflows: ["Main Extension Distribution Pipeline", "Fabric Build"]
     types: [completed]
-    branches: [main]
+    branches: [v1.5]
   workflow_dispatch:
 
 jobs:
@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v1.5
 
       - uses: actions/setup-python@v5
         with:
@@ -33,10 +35,11 @@ jobs:
         with:
           name: delta_classic-v1.5.0-extension-linux_amd64
           workflow: FabricBuild.yml
+          branch: v1.5
           path: ./artifact
           search_artifacts: true
 
-      - run: pip install duckdb==1.5.0 && pip install pytest
+      - run: pip install duckdb==1.5.0 pytest
 
       - run: pytest test/python/ -v -s
         env:

@@ -1,8 +1,12 @@
 #pragma once
 
 #include "duckdb/catalog/catalog.hpp"
-#include "duckdb/common/enums/access_mode.hpp"
+#include "duckdb/common/atomic.hpp"
 #include "duckdb/common/case_insensitive_map.hpp"
+#include "duckdb/common/enums/access_mode.hpp"
+#include "duckdb/common/mutex.hpp"
+#include "duckdb/common/types/value.hpp"
+#include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/vector.hpp"
 
 namespace duckdb {
@@ -11,12 +15,13 @@ class DeltaClassicSchemaEntry;
 
 class DeltaClassicCatalog : public Catalog {
 public:
-	DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, AccessMode access_mode, bool pin_snapshot);
+	//! delta_options are passed to every internal ATTACH ... (TYPE DELTA)
+	DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, unordered_map<string, Value> delta_options);
 	~DeltaClassicCatalog() override;
 
 	string base_path;
-	AccessMode access_mode;
-	bool pin_snapshot;
+	//! Options forwarded to each internal ATTACH (pin_snapshot, timestamp, pushdown_filters, pushdown_partition_info)
+	unordered_map<string, Value> delta_options;
 
 public:
 	void Initialize(bool load_builtin) override;
@@ -41,19 +46,28 @@ public:
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 	bool InMemory() override;
 	string GetDBPath() override;
+	//! AT (VERSION => ...) / AT (TIMESTAMP => ...) is forwarded to the Delta extension
+	bool SupportsTimeTravel() const override {
+		return true;
+	}
 
 	void OnDetach(ClientContext &context) override;
-	void RegisterInternalDb(const string &name);
+
+	//! A fresh internal database name, unique per process, and registered for cleanup on DETACH
+	string CreateInternalDbName();
 
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 	void DiscoverSchemas(ClientContext &context);
+	DeltaClassicSchemaEntry &AddSchema(const string &name, const string &schema_path);
 
 private:
 	case_insensitive_map_t<unique_ptr<DeltaClassicSchemaEntry>> schemas;
-	bool schemas_loaded;
+	atomic<bool> schemas_loaded;
 	mutex schema_lock;
 
+	idx_t catalog_id;
+	idx_t next_internal_db = 0;
 	vector<string> internal_db_names;
 	mutex internal_db_lock;
 };

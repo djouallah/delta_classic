@@ -1,21 +1,27 @@
 #include "storage/delta_classic_catalog.hpp"
+#include "storage/delta_classic_path.hpp"
 #include "storage/delta_classic_schema_entry.hpp"
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/catalog/entry_lookup_info.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/exception/binder_exception.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/to_string.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/database_manager.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/storage/database_size.hpp"
-#include "duckdb/main/database_manager.hpp"
 
 namespace duckdb {
 
-DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, AccessMode access_mode,
-                                         bool pin_snapshot)
-    : Catalog(db), base_path(base_path), access_mode(access_mode), pin_snapshot(pin_snapshot), schemas_loaded(false) {
+static atomic<idx_t> next_catalog_id {0};
+
+DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path,
+                                         unordered_map<string, Value> delta_options)
+    : Catalog(db), base_path(base_path), delta_options(std::move(delta_options)), schemas_loaded(false),
+      catalog_id(next_catalog_id++) {
 }
 
 DeltaClassicCatalog::~DeltaClassicCatalog() = default;
@@ -25,6 +31,28 @@ void DeltaClassicCatalog::Initialize(bool load_builtin) {
 
 string DeltaClassicCatalog::GetCatalogType() {
 	return "delta_classic";
+}
+
+DeltaClassicSchemaEntry &DeltaClassicCatalog::AddSchema(const string &name, const string &schema_path) {
+	auto existing = schemas.find(name);
+	if (existing != schemas.end()) {
+		// Case-insensitive collision (e.g. "Sales" and "sales" on S3): the first one listed wins
+		return *existing->second;
+	}
+	CreateSchemaInfo info;
+	info.SetQualifiedName(QualifiedName({Identifier(name)}, Identifier()));
+	auto schema = make_uniq<DeltaClassicSchemaEntry>(*this, info, schema_path);
+	auto &result = *schema;
+	schemas[name] = std::move(schema);
+	return result;
+}
+
+static vector<pair<string, string>> TableEntries(const string &parent_path, const set<string> &names) {
+	vector<pair<string, string>> result;
+	for (auto &name : names) {
+		result.emplace_back(name, DeltaClassicJoinPath(parent_path, name));
+	}
+	return result;
 }
 
 void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
@@ -37,54 +65,31 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 	}
 
 	auto &fs = FileSystem::GetFileSystem(context);
+	auto listing = DeltaClassicListDirectory(fs, base_path);
 
-	// First pass: check if any immediate child has _delta_log (single-schema mode)
-	bool has_direct_delta_tables = false;
-	vector<string> child_dirs;
-
-	fs.ListFiles(base_path, [&](const string &filename, bool is_directory) {
-		if (!is_directory) {
-			return;
-		}
-		if (filename == "_delta_log") {
-			// The base_path itself is a delta table - not a directory of tables
-			return;
-		}
-		if (filename.empty() || filename[0] == '.') {
-			return;
-		}
-		string child_path = base_path + "/" + filename;
-		string delta_log_path = child_path + "/_delta_log";
-		if (fs.DirectoryExists(delta_log_path)) {
-			has_direct_delta_tables = true;
-		}
-		child_dirs.push_back(filename);
-	});
-
-	if (has_direct_delta_tables) {
-		// Single-schema mode: all delta tables are direct children
+	if (listing.is_delta_table) {
+		// The attached path is itself a Delta table: expose it as main.<last path component>
+		auto &schema = AddSchema(DEFAULT_SCHEMA, base_path);
+		schema.tables.SetEntries({{DeltaClassicLastComponent(base_path), base_path}});
+	} else if (!listing.tables.empty()) {
+		// Single-schema mode: the Delta tables are direct children.
 		// Use DEFAULT_SCHEMA ("main") so unqualified table names work after USE db
-		string schema_name = DEFAULT_SCHEMA;
-
-		CreateSchemaInfo info;
-		info.schema = schema_name;
-		schemas[schema_name] = make_uniq<DeltaClassicSchemaEntry>(*this, info, base_path);
+		auto &schema = AddSchema(DEFAULT_SCHEMA, base_path);
+		schema.tables.SetEntries(TableEntries(base_path, listing.tables));
 	} else {
 		// Multi-schema mode: each child directory is a schema
-		for (auto &dir_name : child_dirs) {
-			if (dir_name.empty() || dir_name[0] == '_') {
-				continue;
+		for (auto &dir_name : listing.directories) {
+			auto schema_path = DeltaClassicJoinPath(base_path, dir_name);
+			auto &schema = AddSchema(dir_name, schema_path);
+			if (listing.recursive) {
+				// A recursive listing already saw every table, so don't list each schema again
+				schema.tables.SetEntries(TableEntries(schema_path, listing.nested_tables[dir_name]));
 			}
-			string schema_path = base_path + "/" + dir_name;
-			CreateSchemaInfo info;
-			info.schema = dir_name;
-			schemas[dir_name] = make_uniq<DeltaClassicSchemaEntry>(*this, info, schema_path);
 		}
 		// Ensure a "main" schema exists so USE db works
 		if (schemas.find(DEFAULT_SCHEMA) == schemas.end()) {
-			CreateSchemaInfo main_info;
-			main_info.schema = DEFAULT_SCHEMA;
-			schemas[DEFAULT_SCHEMA] = make_uniq<DeltaClassicSchemaEntry>(*this, main_info, base_path);
+			auto &main_schema = AddSchema(DEFAULT_SCHEMA, base_path);
+			main_schema.tables.SetEntries({});
 		}
 	}
 
@@ -97,9 +102,15 @@ optional_ptr<CatalogEntry> DeltaClassicCatalog::CreateSchema(CatalogTransaction 
 
 void DeltaClassicCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
 	DiscoverSchemas(context);
-	lock_guard<mutex> lock(schema_lock);
-	for (auto &entry : schemas) {
-		callback(*entry.second);
+	vector<reference<SchemaCatalogEntry>> result;
+	{
+		lock_guard<mutex> lock(schema_lock);
+		for (auto &entry : schemas) {
+			result.push_back(*entry.second);
+		}
+	}
+	for (auto &schema : result) {
+		callback(schema.get());
 	}
 }
 
@@ -182,18 +193,28 @@ void DeltaClassicCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 	throw NotImplementedException("delta_classic databases are read-only");
 }
 
-void DeltaClassicCatalog::RegisterInternalDb(const string &name) {
+string DeltaClassicCatalog::CreateInternalDbName() {
 	lock_guard<mutex> lock(internal_db_lock);
+	auto name = "__dc_" + to_string(catalog_id) + "_" + to_string(next_internal_db++);
 	internal_db_names.push_back(name);
+	return name;
 }
 
 void DeltaClassicCatalog::OnDetach(ClientContext &context) {
-	lock_guard<mutex> lock(internal_db_lock);
-	auto &db_manager = DatabaseManager::Get(context);
-	for (auto &name : internal_db_names) {
-		db_manager.DetachDatabase(context, name, OnEntryNotFound::RETURN_NULL);
+	vector<string> names;
+	{
+		lock_guard<mutex> lock(internal_db_lock);
+		names = std::move(internal_db_names);
+		internal_db_names.clear();
 	}
-	internal_db_names.clear();
+	auto &db_manager = DatabaseManager::Get(context);
+	for (auto &name : names) {
+		try {
+			db_manager.DetachDatabase(context, Identifier(name), OnEntryNotFound::RETURN_NULL, true);
+		} catch (std::exception &) {
+			// Best effort: the outer catalog is going away either way
+		}
+	}
 }
 
 } // namespace duckdb

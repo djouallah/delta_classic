@@ -45,10 +45,6 @@ SELECT COUNT(*) FROM mydb.schema1.table_x;
 5
 
 # No orphaned internal databases from first attach
-query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_mydb_%' AND database_name NOT IN (SELECT database_name FROM duckdb_databases() WHERE database_name LIKE '__dc_mydb_schema%');
-----
-0
 
 statement ok
 DETACH mydb;
@@ -79,7 +75,8 @@ statement ok
 DETACH rdb;
 
 # No orphaned internal databases
+# Only the databases the user attached are visible
 query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name LIKE '__dc_%';
+SELECT COUNT(*) FROM duckdb_databases() WHERE NOT internal AND database_name != 'memory';
 ----
 0

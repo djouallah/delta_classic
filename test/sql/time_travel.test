@@ -1,0 +1,89 @@
+# name: test/sql/time_travel.test
+# description: AT (VERSION / TIMESTAMP) and ATTACH ... TIMESTAMP are passed through to the Delta extension
+# group: [delta_classic]
+
+# The events table carries in-commit timestamps: its commits sit at exactly 2023-11-14 22:13:20, 22:14:20 and
+# 22:15:20 UTC regardless of when the files were checked out. Row counts identify the version: v0 has 10 rows,
+# v1 has 11, v2 has 12. (Fixture copied from duckdb/duckdb-delta, MIT licensed.)
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+statement ok
+ATTACH 'test/data/time_travel' AS tt (TYPE delta_classic);
+
+query I
+SELECT COUNT(*) FROM tt.main.events;
+----
+12
+
+query I
+SELECT COUNT(*) FROM tt.main.events AT (VERSION => 0);
+----
+10
+
+query I
+SELECT COUNT(*) FROM tt.main.events AT (VERSION => 1);
+----
+11
+
+query I
+SELECT COUNT(*) FROM tt.main.events AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT COUNT(*) FROM tt.main.events AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:13:50+00');
+----
+10
+
+# Two versions of the same table in one query
+query II
+SELECT (SELECT COUNT(*) FROM tt.main.events AT (VERSION => 0)), (SELECT COUNT(*) FROM tt.main.events);
+----
+10	12
+
+query I
+SELECT MAX(i) FROM tt.main.events AT (VERSION => 1);
+----
+10
+
+statement ok
+DETACH tt;
+
+# ATTACH ... TIMESTAMP reads every table as of that point in time
+statement ok
+ATTACH 'test/data/time_travel' AS tt1 (TYPE delta_classic, TIMESTAMP TIMESTAMPTZ '2023-11-14 22:14:20+00');
+
+query I
+SELECT COUNT(*) FROM tt1.main.events;
+----
+11
+
+# The attached timestamp is only the default: AT overrides it
+query I
+SELECT COUNT(*) FROM tt1.main.events AT (VERSION => 2);
+----
+12
+
+statement ok
+DETACH tt1;
+
+statement ok
+ATTACH 'test/data/time_travel' AS tt2 (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP TIMESTAMPTZ '2023-11-14 22:13:20+00');
+
+query I
+SELECT COUNT(*) FROM tt2.main.events;
+----
+10
+
+statement ok
+DETACH tt2;

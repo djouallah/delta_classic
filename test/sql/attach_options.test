@@ -1,0 +1,73 @@
+# name: test/sql/attach_options.test
+# description: ATTACH options are validated and forwarded to every Delta table
+# group: [delta_classic]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# PIN_SNAPSHOT takes a value, and false means not pinned
+statement ok
+ATTACH 'test/data/single_schema' AS nopin (TYPE delta_classic, PIN_SNAPSHOT false);
+
+query I
+SELECT COUNT(*) FROM nopin.main.table_a;
+----
+3
+
+statement ok
+DETACH nopin;
+
+# Pushdown options are forwarded to the Delta extension
+statement ok
+ATTACH 'test/data/multi_schema' AS pdb (TYPE delta_classic, PUSHDOWN_FILTERS 'none', PUSHDOWN_PARTITION_INFO false);
+
+query I
+SELECT SUM(amount) FROM pdb.schema1.table_x WHERE region = 'east';
+----
+550
+
+statement ok
+DETACH pdb;
+
+statement ok
+ATTACH 'test/data/multi_schema' AS pdb (TYPE delta_classic, PUSHDOWN_FILTERS 'all');
+
+query I
+SELECT SUM(amount) FROM pdb.schema1.table_x WHERE region = 'east';
+----
+550
+
+statement ok
+DETACH pdb;
+
+# An invalid pushdown mode is reported by the Delta extension
+statement ok
+ATTACH 'test/data/multi_schema' AS bad (TYPE delta_classic, PUSHDOWN_FILTERS 'sometimes');
+
+statement error
+SELECT * FROM bad.schema1.table_x;
+----
+sometimes
+
+statement ok
+DETACH bad;
+
+# Delta versions are per table, so VERSION can't apply to a whole directory
+statement error
+ATTACH 'test/data/single_schema' AS vdb (TYPE delta_classic, VERSION 0);
+----
+TIMESTAMP
+
+# Unknown options are rejected
+statement error
+ATTACH 'test/data/single_schema' AS udb (TYPE delta_classic, NOT_AN_OPTION 1);
+----
+not_an_option

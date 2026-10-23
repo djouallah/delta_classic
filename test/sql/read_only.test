@@ -20,19 +20,19 @@ ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic);
 statement error
 CREATE TABLE rodb.main.new_table (id INTEGER);
 ----
-delta_classic databases are read-only
+read-only
 
 # DROP TABLE should fail
 statement error
 DROP TABLE rodb.main.table_a;
 ----
-delta_classic databases are read-only
+read-only
 
 # CREATE SCHEMA should fail
 statement error
 CREATE SCHEMA rodb.new_schema;
 ----
-delta_classic databases are read-only
+read-only
 
 # INSERT should fail (need to query first so table is attached internally)
 query I
@@ -49,13 +49,13 @@ read-only
 statement error
 UPDATE rodb.main.table_a SET name = 'test' WHERE id = 1;
 ----
-Can only update base table
+<REGEX>:.*(read-only|base table).*
 
 # DELETE should fail
 statement error
 DELETE FROM rodb.main.table_a WHERE id = 1;
 ----
-Can only delete from base table
+<REGEX>:.*(read-only|base table).*
 
 statement ok
 DETACH rodb;
