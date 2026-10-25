@@ -28,7 +28,7 @@ void DeltaClassicTransactionManager::RollbackTransaction(Transaction &transactio
 }
 
 void DeltaClassicTransactionManager::Checkpoint(ClientContext &context, bool force) {
-	// No-op for read-only catalog
+	// No-op: the Delta extension commits each write itself
 }
 
 } // namespace duckdb

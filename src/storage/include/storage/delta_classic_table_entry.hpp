@@ -41,6 +41,10 @@ public:
 	DeltaClassicTableEntry &Resolve(ClientContext &context, optional_ptr<BoundAtClause> at_clause);
 	//! Listed entries only: the resolved entry of the current transaction without an AT clause, if any
 	optional_ptr<DeltaClassicTableEntry> TryGetResolved(ClientContext &context);
+	//! Listed entries only: the internal Delta catalog, attaching it if needed. Its table may not exist yet.
+	Catalog &GetAttachedCatalog(ClientContext &context);
+	//! Resolved entries only: the Delta catalog that writes are forwarded to
+	Catalog &GetInnerCatalog();
 
 private:
 	//! Attaches the Delta table if it isn't (or no longer is, e.g. after a ROLLBACK) attached

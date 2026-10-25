@@ -1,0 +1,304 @@
+# name: test/sql/write.test
+# description: ATTACH ... (READ_ONLY false) forwards CREATE TABLE and INSERT to the Delta extension
+# group: [sql]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# ============================================================
+# The default stays read-only
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_write_ro' AS ro (TYPE delta_classic);
+
+query I
+SELECT readonly FROM duckdb_databases() WHERE database_name = 'ro';
+----
+true
+
+statement error
+CREATE TABLE ro.main.t (i INTEGER);
+----
+read-only
+
+statement ok
+DETACH ro;
+
+# ============================================================
+# Options that read a fixed point in time can't be written
+# ============================================================
+
+statement error
+ATTACH '__TEST_DIR__/dc_write_ts' AS ts (TYPE delta_classic, READ_ONLY false, TIMESTAMP '2024-01-01 00:00:00+00');
+----
+TIMESTAMP
+
+statement error
+ATTACH '__TEST_DIR__/dc_write_pin' AS pin (TYPE delta_classic, READ_ONLY false, PIN_SNAPSHOT);
+----
+PIN_SNAPSHOT
+
+# ============================================================
+# An empty directory: tables are created in main
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_write_empty' AS w (TYPE delta_classic, READ_ONLY false);
+
+query I
+SELECT readonly FROM duckdb_databases() WHERE database_name = 'w';
+----
+false
+
+statement ok
+CREATE TABLE w.main.t (id INTEGER, s VARCHAR);
+
+query I
+SELECT COUNT(*) FROM w.main.t;
+----
+0
+
+statement ok
+INSERT INTO w.main.t VALUES (1, 'a'), (2, 'b');
+
+query II
+SELECT id, s FROM w.main.t ORDER BY id;
+----
+1	a
+2	b
+
+# Version 0 is the empty table CREATE TABLE committed
+query I
+SELECT COUNT(*) FROM w.main.t AT (VERSION => 0);
+----
+0
+
+query I
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'w';
+----
+t
+
+# CREATE conflicts
+statement ok
+CREATE TABLE IF NOT EXISTS w.main.t (other INTEGER);
+
+statement error
+CREATE TABLE w.main.t (id INTEGER);
+----
+already exists
+
+statement error
+CREATE OR REPLACE TABLE w.main.t (id INTEGER);
+----
+OR REPLACE
+
+# A CREATE the Delta extension rejects leaves no table behind
+statement error
+CREATE TABLE w.main.bad (i INTEGER NOT NULL);
+----
+NOT NULL
+
+query I
+SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'w' AND table_name = 'bad';
+----
+0
+
+statement ok
+CREATE TABLE w.main.bad (i INTEGER);
+
+# Writes the Delta extension can't do
+statement error
+CREATE TABLE w.main.ctas AS SELECT 1 AS i;
+----
+CREATE TABLE AS SELECT
+
+statement error
+UPDATE w.main.t SET s = 'x';
+----
+<REGEX>:.*(not support|base table).*
+
+statement error
+DELETE FROM w.main.t;
+----
+<REGEX>:.*(not support|base table).*
+
+statement error
+DROP TABLE w.main.t;
+----
+not support
+
+# A rolled back INSERT is discarded
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO w.main.t VALUES (3, 'c');
+
+statement ok
+ROLLBACK;
+
+query I
+SELECT COUNT(*) FROM w.main.t;
+----
+2
+
+# Several INSERTs commit together
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO w.main.t VALUES (3, 'c');
+
+statement ok
+INSERT INTO w.main.t VALUES (4, 'd');
+
+statement ok
+COMMIT;
+
+query I
+SELECT COUNT(*) FROM w.main.t;
+----
+4
+
+# Attached again, the directory is a single schema holding the new tables
+statement ok
+DETACH w;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_write_empty' AS w (TYPE delta_classic);
+
+query II
+SELECT id, s FROM w.main.t ORDER BY id;
+----
+1	a
+2	b
+3	c
+4	d
+
+query I rowsort
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'w';
+----
+bad
+t
+
+statement error
+INSERT INTO w.main.t VALUES (5, 'e');
+----
+read-only
+
+statement ok
+DETACH w;
+
+# ============================================================
+# Multi-schema: tables are created in a schema directory
+# ============================================================
+
+# Lay out <dir>/sales/orders with the Delta extension itself
+statement ok
+ATTACH '__TEST_DIR__/dc_write_multi/sales/orders' AS seed (TYPE delta);
+
+statement ok
+CREATE TABLE seed.seed (id INTEGER, region VARCHAR);
+
+statement ok
+INSERT INTO seed.seed VALUES (1, 'eu'), (2, 'us');
+
+statement ok
+DETACH seed;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_write_multi' AS m (TYPE delta_classic, READ_ONLY false);
+
+query I
+SELECT COUNT(*) FROM m.sales.orders;
+----
+2
+
+statement ok
+INSERT INTO m.sales.orders VALUES (3, 'us');
+
+query I
+SELECT COUNT(*) FROM m.sales.orders;
+----
+3
+
+statement ok
+CREATE TABLE m.sales.returns (id INTEGER, region VARCHAR) PARTITIONED BY (region);
+
+statement ok
+INSERT INTO m.sales.returns VALUES (1, 'eu'), (2, 'us'), (3, 'eu');
+
+query I
+SELECT COUNT(*) FROM m.sales.returns WHERE region = 'eu';
+----
+2
+
+# WITH options become Delta table properties
+statement ok
+CREATE TABLE m.sales.notes (i INTEGER) WITH ('delta.enableDeletionVectors' = 'true');
+
+statement ok
+INSERT INTO m.sales.notes VALUES (1);
+
+query I
+SELECT COUNT(*) FROM m.sales.notes;
+----
+1
+
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'm' AND schema_name = 'sales';
+----
+sales	notes
+sales	orders
+sales	returns
+
+# A table directly in the base directory would hide the schemas
+statement error
+CREATE TABLE m.main.x (i INTEGER);
+----
+one schema per directory
+
+# One transaction can write several tables: each one commits on its own
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO m.sales.orders VALUES (4, 'eu');
+
+statement ok
+INSERT INTO m.sales.returns VALUES (4, 'us');
+
+statement ok
+COMMIT;
+
+query II
+SELECT (SELECT COUNT(*) FROM m.sales.orders), (SELECT COUNT(*) FROM m.sales.returns);
+----
+4	4
+
+statement ok
+DETACH m;
+
+# ============================================================
+# A single attached table can't hold new tables
+# ============================================================
+
+statement ok
+ATTACH 'test/data/time_travel/events' AS one (TYPE delta_classic, READ_ONLY false);
+
+statement error
+CREATE TABLE one.main.x (i INTEGER);
+----
+single Delta table
+
+statement ok
+DETACH one;

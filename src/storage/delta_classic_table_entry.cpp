@@ -53,12 +53,18 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 	info.path = delta_table_path;
 	// The Delta extension reads its options from the AttachInfo
 	info.options = dc_catalog.delta_options;
+	// Name the Delta table after this table, not after the internal database (CREATE TABLE writes it into the log)
+	info.options["internal_table_name"] = Value(name.GetIdentifierName());
+	if (dc_catalog.writable) {
+		// Inserts are planned through this catalog: the Delta extension then resolves its own table entry
+		info.options["child_catalog_mode"] = Value::BOOLEAN(true);
+	}
 
 	auto attach_options = dc_catalog.delta_options;
 	attach_options["type"] = Value("delta");
 	// Keep the internal database out of SHOW DATABASES / duckdb_databases()
 	attach_options["hidden"] = Value::BOOLEAN(true);
-	AttachOptions options(attach_options, AccessMode::READ_ONLY);
+	AttachOptions options(attach_options, dc_catalog.writable ? AccessMode::READ_WRITE : AccessMode::READ_ONLY);
 
 	auto attached = db_manager.AttachDatabase(context, info, options);
 	if (!attached) {
@@ -72,9 +78,8 @@ TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context, o
 	auto &inner_catalog = attached.GetCatalog();
 	CatalogTransaction inner_transaction(inner_catalog, context);
 	auto &inner_schema = inner_catalog.GetSchema(inner_transaction, Identifier::DefaultSchema());
-	// A Delta catalog holds a single table, named after the catalog
-	EntryLookupInfo inner_lookup(CatalogType::TABLE_ENTRY, QualifiedName(inner_catalog.GetName()), at_clause,
-	                             QueryErrorContext());
+	// A Delta catalog holds a single table, named by the internal_table_name option
+	EntryLookupInfo inner_lookup(CatalogType::TABLE_ENTRY, QualifiedName(name), at_clause, QueryErrorContext());
 	auto entry = inner_schema.LookupEntry(inner_transaction, inner_lookup);
 	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
 		throw CatalogException("Delta table \"%s\" at \"%s\" could not be read", name, delta_table_path);
@@ -111,6 +116,17 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicTableEntry::TryGetResolved(Clie
 	}
 	auto &transaction = DeltaClassicTransaction::Get(context, catalog);
 	return transaction.GetResolvedTable(ResolvedKey(delta_table_path, nullptr));
+}
+
+Catalog &DeltaClassicTableEntry::GetAttachedCatalog(ClientContext &context) {
+	return EnsureAttached(context).GetCatalog();
+}
+
+Catalog &DeltaClassicTableEntry::GetInnerCatalog() {
+	if (!inner) {
+		throw InternalException("delta_classic: table \"%s\" is not resolved", name);
+	}
+	return inner->ParentCatalog();
 }
 
 DeltaClassicTableEntry &DeltaClassicTableEntry::GetResolved(ClientContext &context) {

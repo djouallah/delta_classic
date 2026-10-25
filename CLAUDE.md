@@ -13,7 +13,7 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_F
       → DeltaClassicSchemaEntry per schema dir
         → DeltaClassicTableSet: one "listed" DeltaClassicTableEntry per table (no columns)
           → on lookup, Resolve(): internally runs (once, re-done after a ROLLBACK)
-            ATTACH 'path/table' AS __dc_<catalog id>_<n> (TYPE DELTA, HIDDEN, READ_ONLY, <delta_options>)
+            ATTACH 'path/table' AS __dc_<catalog id>_<n> (TYPE DELTA, HIDDEN, READ_ONLY or READ_WRITE + child_catalog_mode, internal_table_name <table>, <delta_options>)
             then looks the table up there (passing the AT clause) and returns a per-transaction
             "resolved" DeltaClassicTableEntry that copies its columns and forwards scans/stats to it
 ```
@@ -34,16 +34,16 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_F
 | `src/delta_classic_extension.cpp` | Entry point. Registers `delta_classic` storage type, parses PIN_SNAPSHOT from ATTACH options |
 | `src/storage/delta_classic_catalog.cpp` | Virtual catalog. Discovers schemas (single table / single / multi schema), hands out internal DB names, detaches them on DETACH |
 | `src/storage/delta_classic_path.cpp` | Path helpers and `DeltaClassicListDirectory` (flat and recursive listings) |
-| `src/storage/delta_classic_schema_entry.cpp` | Read-only schema. Delegates table lookups to table set |
+| `src/storage/delta_classic_schema_entry.cpp` | Schema. Delegates table lookups to the table set; forwards CREATE TABLE to a new internal Delta attach |
 | `src/storage/delta_classic_table_set.cpp` | Lists the tables of a schema (unless discovery already did) |
 | `src/storage/delta_classic_table_entry.cpp` | The core: internal ATTACH per table, per-transaction resolution, forwards scans/stats/virtual columns/AT clause |
-| `src/storage/delta_classic_transaction*.cpp` | Read-only transactions; cache the resolved table entries of a transaction |
+| `src/storage/delta_classic_transaction*.cpp` | Transactions; cache the resolved table entries of a transaction (the Delta extension commits writes itself) |
 
 ### Key Design Decisions
 1. **Internal ATTACH, not delta_scan** — `PIN_SNAPSHOT` only works with `ATTACH TYPE DELTA`, not `delta_scan()` directly
 2. **Lazy everything** — schemas discovered on first lookup, tables listed on first access, internal ATTACH on first query
 3. **FileSystem abstraction** — works with local, S3, ABFSS, GCS paths automatically
-4. **Read-only** — all write operations throw
+4. **Read-only by default** — `READ_ONLY false` makes the database writable: each internal ATTACH is then `READ_WRITE` with `child_catalog_mode`, `PlanInsert` forwards to the inner `DeltaCatalog` (which resolves its own table entry), and `CreateTable` calls the inner `main` schema's `CreateTable`. Only the delta_classic database is registered as modified; the inner Delta transactions commit with it. The access mode must be applied with `AttachedDatabase::SetReadOnlyDatabase()`: changing `options.access_mode` in the attach callback has no effect
 5. **Delta options go in `AttachInfo::options`** — the Delta extension reads its options (PIN_SNAPSHOT, TIMESTAMP, ...) from the `AttachInfo`, not from `AttachOptions`
 6. **Per-transaction table entries** — like duckdb-delta, so columns match the snapshot being read and nothing shared is mutated
 
@@ -107,7 +107,7 @@ The `__dc_*` internal databases are an implementation detail. Tests must ONLY in
 1. **PIN_SNAPSHOT is ATTACH-only** — it's an option for `ATTACH ... (TYPE DELTA)`, not a parameter for `delta_scan()`. This is why the extension internally ATTACHes each table rather than calling delta_scan directly.
 2. **Don't fork extension-ci-tools** — community extensions have their own standalone repos (e.g., `djouallah/delta_classic`), not forks of `duckdb/extension-ci-tools`.
 3. **Submodule init** — after cloning, run `git submodule update --init --recursive` to pull duckdb and extension-ci-tools.
-4. **Read-only enforcement** — every write path (CREATE TABLE, INSERT, UPDATE, DELETE, DROP) must throw. DuckDB will call these methods; they must exist but reject.
+4. **Write enforcement** — CREATE TABLE and INSERT only work with `READ_ONLY false`; every other write path (UPDATE, DELETE, DROP, ALTER, CREATE SCHEMA, CTAS) must throw, because the Delta extension can't do it either. DuckDB will call these methods; they must exist but reject.
 
 ## Reference Extensions
 

@@ -1,6 +1,7 @@
 #include "storage/delta_classic_catalog.hpp"
 #include "storage/delta_classic_path.hpp"
 #include "storage/delta_classic_schema_entry.hpp"
+#include "storage/delta_classic_table_entry.hpp"
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/catalog/entry_lookup_info.hpp"
@@ -13,7 +14,10 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/planner/logical_operator.hpp"
+#include "duckdb/planner/operator/logical_insert.hpp"
+#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/storage/database_size.hpp"
+#include "duckdb/transaction/transaction.hpp"
 
 namespace duckdb {
 
@@ -23,9 +27,9 @@ static idx_t NextCatalogId() {
 }
 
 DeltaClassicCatalog::DeltaClassicCatalog(AttachedDatabase &db, const string &base_path,
-                                         unordered_map<string, Value> delta_options)
-    : Catalog(db), base_path(base_path), delta_options(std::move(delta_options)), schemas_loaded(false),
-      catalog_id(NextCatalogId()) {
+                                         unordered_map<string, Value> delta_options, bool writable)
+    : Catalog(db), base_path(base_path), delta_options(std::move(delta_options)), writable(writable),
+      layout(DeltaClassicLayout::EMPTY), schemas_loaded(false), catalog_id(NextCatalogId()) {
 }
 
 DeltaClassicCatalog::~DeltaClassicCatalog() = default;
@@ -73,15 +77,18 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 
 	if (listing.is_delta_table) {
 		// The attached path is itself a Delta table: expose it as main.<last path component>
+		layout = DeltaClassicLayout::SINGLE_TABLE;
 		auto &schema = AddSchema(DEFAULT_SCHEMA, base_path);
 		schema.tables.SetEntries({{DeltaClassicLastComponent(base_path), base_path}});
 	} else if (!listing.tables.empty()) {
 		// Single-schema mode: the Delta tables are direct children.
 		// Use DEFAULT_SCHEMA ("main") so unqualified table names work after USE db
+		layout = DeltaClassicLayout::SINGLE_SCHEMA;
 		auto &schema = AddSchema(DEFAULT_SCHEMA, base_path);
 		schema.tables.SetEntries(TableEntries(base_path, listing.tables));
 	} else {
 		// Multi-schema mode: each child directory is a schema
+		layout = listing.directories.empty() ? DeltaClassicLayout::EMPTY : DeltaClassicLayout::MULTI_SCHEMA;
 		for (auto &dir_name : listing.directories) {
 			auto schema_path = DeltaClassicJoinPath(base_path, dir_name);
 			auto &schema = AddSchema(dir_name, schema_path);
@@ -101,7 +108,7 @@ void DeltaClassicCatalog::DiscoverSchemas(ClientContext &context) {
 }
 
 optional_ptr<CatalogEntry> DeltaClassicCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
-	throw BinderException("delta_classic databases are read-only");
+	throw BinderException(UnsupportedWriteMessage("CREATE SCHEMA"));
 }
 
 void DeltaClassicCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
@@ -148,30 +155,53 @@ optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransa
 	throw BinderException("Schema \"%s\" not found in delta_classic catalog \"%s\"", schema_name, GetName());
 }
 
+ErrorData DeltaClassicCatalog::SupportsCreateTable(BoundCreateTableInfo &info) {
+	// PARTITIONED BY and WITH (table properties) are handled by the Delta extension
+	if (!info.Base().sort_keys.empty()) {
+		return ErrorData(ExceptionType::CATALOG, "SORTED BY is not supported for tables in a delta_classic catalog");
+	}
+	return ErrorData();
+}
+
 PhysicalOperator &DeltaClassicCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
                                                          LogicalCreateTable &op, PhysicalOperator &plan) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	if (!writable) {
+		throw NotImplementedException("delta_classic databases are read-only");
+	}
+	throw NotImplementedException(
+	    "delta_classic does not support CREATE TABLE AS SELECT: create the table, then INSERT into it");
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
                                                   LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	if (!writable) {
+		throw NotImplementedException("delta_classic databases are read-only");
+	}
+	auto &inner_catalog = op.table.Cast<DeltaClassicTableEntry>().GetInnerCatalog();
+	// Only this catalog is registered as modified, so the Delta transaction is still flagged read-only. It commits
+	// with the rest of the transaction.
+	auto &inner_transaction = Transaction::Get(context, inner_catalog);
+	if (inner_transaction.IsReadOnly()) {
+		inner_transaction.SetReadWrite();
+	}
+	// The table is attached in child catalog mode, so the Delta extension resolves its own entry for the insert
+	return inner_catalog.PlanInsert(context, planner, op, plan);
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
                                                   LogicalDelete &op, PhysicalOperator &plan) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	throw NotImplementedException(UnsupportedWriteMessage("DELETE"));
 }
 
 PhysicalOperator &DeltaClassicCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner,
                                                   LogicalUpdate &op, PhysicalOperator &plan) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	throw NotImplementedException(UnsupportedWriteMessage("UPDATE"));
 }
 
 unique_ptr<LogicalOperator> DeltaClassicCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
                                                                  TableCatalogEntry &table,
                                                                  unique_ptr<LogicalOperator> plan) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	throw NotImplementedException(UnsupportedWriteMessage("CREATE INDEX"));
 }
 
 DatabaseSize DeltaClassicCatalog::GetDatabaseSize(ClientContext &context) {
@@ -194,7 +224,14 @@ string DeltaClassicCatalog::GetDBPath() {
 }
 
 void DeltaClassicCatalog::DropSchema(ClientContext &context, DropInfo &info) {
-	throw NotImplementedException("delta_classic databases are read-only");
+	throw NotImplementedException(UnsupportedWriteMessage("DROP SCHEMA"));
+}
+
+string DeltaClassicCatalog::UnsupportedWriteMessage(const string &operation) const {
+	if (!writable) {
+		return "delta_classic databases are read-only";
+	}
+	return "delta_classic does not support " + operation;
 }
 
 string DeltaClassicCatalog::CreateInternalDbName() {

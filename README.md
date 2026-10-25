@@ -108,9 +108,25 @@ SELECT * FROM db.main.orders AT (TIMESTAMP => TIMESTAMPTZ '2026-10-01 00:00:00+0
 
 `AT` overrides an attached `TIMESTAMP`.
 
+## Writing
+
+Databases are read-only unless attached with `READ_ONLY false`. `CREATE TABLE` and `INSERT` are then passed to the Delta extension:
+
+```sql
+ATTACH 's3://bucket/lake' AS db (TYPE delta_classic, READ_ONLY false);
+
+CREATE TABLE db.sales.returns (id INTEGER, region VARCHAR) PARTITIONED BY (region);
+INSERT INTO db.sales.returns VALUES (1, 'eu'), (2, 'us');
+```
+
+- `CREATE TABLE` writes a new Delta table in the schema's directory (`<path>/sales/returns`). It takes `PARTITIONED BY`, Delta table properties in `WITH ('delta.enableDeletionVectors' = 'true')` and `IF NOT EXISTS`, like the Delta extension.
+- In a directory with one schema per subdirectory, tables go in a schema: a table directly in the attached directory would turn it into a single schema. A path that is itself a Delta table can't hold new tables.
+- `TIMESTAMP` and `PIN_SNAPSHOT` can't be combined with `READ_ONLY false`.
+- Not supported, as in the Delta extension: `CREATE TABLE AS SELECT`, `CREATE OR REPLACE`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE SCHEMA`, `RETURNING`, `ON CONFLICT`.
+- Each table commits on its own: a transaction that writes several tables is not atomic across them. `CREATE TABLE` is committed immediately and is not undone by `ROLLBACK`. A table written in a transaction can't be read again in that transaction.
+
 ## Limitations
 
-- Read-only.
 - Not available in DuckDB-WASM, because the Delta extension has no WASM build.
 - Tables and schemas are listed once, on first use. Attach again to see new ones.
 - `duckdb_columns()` and `information_schema.columns` only show the columns of tables already queried in the current transaction (listing every column would read every Delta log). `DESCRIBE` always works.

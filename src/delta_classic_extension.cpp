@@ -42,12 +42,22 @@ static unordered_map<string, Value> ParseDeltaOptions(AttachOptions &options) {
 static unique_ptr<Catalog> DeltaClassicAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
                                               AttachedDatabase &db, const string &name, AttachInfo &info,
                                               AttachOptions &options) {
-	// Force read-only
-	options.access_mode = AccessMode::READ_ONLY;
-
+	// Read-only unless asked for READ_ONLY false / READ_WRITE
+	bool writable = options.access_mode == AccessMode::READ_WRITE;
 	auto base_path = DeltaClassicTrimPath(info.path);
 	auto delta_options = ParseDeltaOptions(options);
-	return make_uniq<DeltaClassicCatalog>(db, base_path, std::move(delta_options));
+	if (writable) {
+		if (delta_options.find("timestamp") != delta_options.end()) {
+			throw BinderException("delta_classic: TIMESTAMP reads every table as of a point in time, so it can't be "
+			                      "combined with READ_ONLY false");
+		}
+		if (delta_options.find("pin_snapshot") != delta_options.end()) {
+			throw BinderException("delta_classic: PIN_SNAPSHOT can't be combined with READ_ONLY false");
+		}
+	} else {
+		db.SetReadOnlyDatabase();
+	}
+	return make_uniq<DeltaClassicCatalog>(db, base_path, std::move(delta_options), writable);
 }
 
 static unique_ptr<TransactionManager>

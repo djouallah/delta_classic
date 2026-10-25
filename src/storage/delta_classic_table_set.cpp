@@ -59,6 +59,22 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::FindEntry(const strin
 	return it->second.get();
 }
 
+optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::GetListedEntry(ClientContext &context, const string &name) {
+	LoadEntries(context);
+	return FindEntry(name);
+}
+
+DeltaClassicTableEntry &DeltaClassicTableSet::AddTable(const string &name, const string &path) {
+	lock_guard<mutex> lock(entry_lock);
+	AddEntry(name, path);
+	return *tables[name];
+}
+
+void DeltaClassicTableSet::RemoveTable(const string &name) {
+	lock_guard<mutex> lock(entry_lock);
+	tables.erase(name);
+}
+
 optional_ptr<CatalogEntry> DeltaClassicTableSet::GetEntry(ClientContext &context, const EntryLookupInfo &lookup) {
 	LoadEntries(context);
 	auto entry = FindEntry(lookup.GetEntryName());

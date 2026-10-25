@@ -13,15 +13,32 @@ namespace duckdb {
 
 class DeltaClassicSchemaEntry;
 
+//! How the attached directory is laid out, as found by schema discovery
+enum class DeltaClassicLayout : uint8_t {
+	//! The path itself is a Delta table
+	SINGLE_TABLE,
+	//! The Delta tables are direct children, in "main"
+	SINGLE_SCHEMA,
+	//! Each child directory is a schema
+	MULTI_SCHEMA,
+	//! Nothing yet: tables created in "main" make it a single schema
+	EMPTY
+};
+
 class DeltaClassicCatalog : public Catalog {
 public:
 	//! delta_options are passed to every internal ATTACH ... (TYPE DELTA)
-	DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, unordered_map<string, Value> delta_options);
+	DeltaClassicCatalog(AttachedDatabase &db, const string &base_path, unordered_map<string, Value> delta_options,
+	                    bool writable);
 	~DeltaClassicCatalog() override;
 
 	string base_path;
 	//! Options forwarded to each internal ATTACH (pin_snapshot, timestamp, pushdown_filters, pushdown_partition_info)
 	unordered_map<string, Value> delta_options;
+	//! Attached with READ_ONLY false: CREATE TABLE and INSERT are forwarded to the Delta extension
+	bool writable;
+	//! Set by schema discovery
+	DeltaClassicLayout layout;
 
 public:
 	void Initialize(bool load_builtin) override;
@@ -32,6 +49,7 @@ public:
 	optional_ptr<SchemaCatalogEntry> LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
 	                                              OnEntryNotFound if_not_found) override;
 
+	ErrorData SupportsCreateTable(BoundCreateTableInfo &info) override;
 	PhysicalOperator &PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner, LogicalCreateTable &op,
 	                                    PhysicalOperator &plan) override;
 	PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
@@ -52,6 +70,9 @@ public:
 	}
 
 	void OnDetach(ClientContext &context) override;
+
+	//! The error message for a write that this catalog doesn't do
+	string UnsupportedWriteMessage(const string &operation) const;
 
 	//! A fresh internal database name, unique per process, and registered for cleanup on DETACH
 	string CreateInternalDbName();
