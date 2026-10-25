@@ -14,7 +14,7 @@
 namespace duckdb {
 
 //! Parses the delta_classic ATTACH options into the options passed to each internal ATTACH ... (TYPE DELTA)
-static unordered_map<string, Value> ParseDeltaOptions(AttachOptions &options) {
+static unordered_map<string, Value> ParseDeltaOptions(ClientContext &context, AttachOptions &options) {
 	unordered_map<string, Value> delta_options;
 	for (auto &entry : options.options) {
 		auto key = StringUtil::Lower(entry.first);
@@ -23,8 +23,8 @@ static unordered_map<string, Value> ParseDeltaOptions(AttachOptions &options) {
 				delta_options["pin_snapshot"] = Value::BOOLEAN(true);
 			}
 		} else if (key == "timestamp") {
-			// Every table is read as of this point in time
-			delta_options["timestamp"] = entry.second;
+			// Every table is read as of this point in time, in this session's time zone
+			delta_options["timestamp"] = entry.second.CastAs(context, LogicalType::TIMESTAMP_TZ);
 		} else if (key == "pushdown_filters" || key == "pushdown_partition_info") {
 			delta_options[key] = entry.second;
 		} else if (key == "version") {
@@ -45,7 +45,7 @@ static unique_ptr<Catalog> DeltaClassicAttach(optional_ptr<StorageExtensionInfo>
 	// Read-only unless asked for READ_ONLY false / READ_WRITE
 	bool writable = options.access_mode == AccessMode::READ_WRITE;
 	auto base_path = DeltaClassicTrimPath(info.path);
-	auto delta_options = ParseDeltaOptions(options);
+	auto delta_options = ParseDeltaOptions(context, options);
 	if (writable) {
 		if (delta_options.find("timestamp") != delta_options.end()) {
 			throw BinderException("delta_classic: TIMESTAMP reads every table as of a point in time, so it can't be "

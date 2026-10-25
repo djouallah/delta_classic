@@ -1,0 +1,213 @@
+# name: test/sql/write_concurrency.test
+# description: Concurrent writers and readers never leave partial, duplicated or lost data
+# group: [sql]
+
+# Every batch is 100 rows with ids batch * 100 .. batch * 100 + 99, so a reader can tell a whole commit from a partial
+# one. Concurrent appends to one table race for the next Delta version: the losers fail with a commit conflict and
+# must leave nothing behind.
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_concurrency' AS w (TYPE delta_classic, READ_ONLY false);
+
+statement ok
+CREATE TABLE w.main.events (id BIGINT, batch INTEGER, payload VARCHAR);
+
+# A second catalog over the same directory: it has its own internal attaches, made by the concurrent statements
+# themselves, and commits race with the first one like another process would
+statement ok
+ATTACH '__TEST_DIR__/dc_concurrency' AS w2 (TYPE delta_classic, READ_ONLY false);
+
+# ============================================================
+# Concurrent appends through both catalogs, with readers
+# ============================================================
+
+concurrentloop i 0 8
+
+loop j 0 5
+
+statement maybe
+INSERT INTO w.main.events SELECT (${i} * 10 + ${j}) * 100 + range, ${i} * 10 + ${j}, 'w' FROM range(100);
+----
+conflict
+
+statement maybe
+INSERT INTO w2.main.events SELECT (${i} * 10 + ${j} + 5) * 100 + range, ${i} * 10 + ${j} + 5, 'w2' FROM range(100);
+----
+conflict
+
+# Whatever a reader sees mid-flight is made of whole commits
+query I
+SELECT count(*) % 100 FROM w2.main.events;
+----
+0
+
+query I
+SELECT count(*) FROM (SELECT batch FROM w.main.events GROUP BY batch HAVING count(*) != 100 OR count(DISTINCT id) != 100);
+----
+0
+
+endloop
+
+endloop
+
+query I
+SELECT count(*) > 0 FROM w.main.events;
+----
+true
+
+# No partial, duplicated or misplaced rows
+query I
+SELECT count(*) FROM (
+    SELECT batch FROM w.main.events GROUP BY batch
+    HAVING count(*) != 100 OR count(DISTINCT id) != 100 OR min(id) != batch * 100 OR max(id) != batch * 100 + 99
+);
+----
+0
+
+query I
+SELECT count(*) = count(DISTINCT id) FROM w.main.events;
+----
+true
+
+# Both catalogs and the Delta extension itself read the same table
+query I
+SELECT (SELECT count(*) FROM w.main.events) = (SELECT count(*) FROM w2.main.events);
+----
+true
+
+query I
+SELECT (SELECT sum(id) FROM w.main.events) = (SELECT sum(id) FROM delta_scan('__TEST_DIR__/dc_concurrency/events'));
+----
+true
+
+# ============================================================
+# Concurrent rolled back transactions leave nothing
+# ============================================================
+
+concurrentloop i 0 8
+
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO w2.main.events SELECT 1000000 + ${i} * 100 + range, -1, 'rolled back' FROM range(100);
+
+statement ok
+ROLLBACK;
+
+endloop
+
+query I
+SELECT count(*) FROM w.main.events WHERE batch = -1;
+----
+0
+
+# ============================================================
+# Concurrent CREATE TABLE of different tables, each filled by its creator
+# ============================================================
+
+concurrentloop i 0 8
+
+statement ok
+CREATE TABLE w2.main.t_${i} (id INTEGER);
+
+statement ok
+INSERT INTO w2.main.t_${i} SELECT range FROM range(${i} + 1);
+
+endloop
+
+loop i 0 8
+
+query I
+SELECT count(*) = ${i} + 1 AND sum(id) = ${i} * (${i} + 1) / 2 FROM w2.main.t_${i};
+----
+true
+
+endloop
+
+# ============================================================
+# Concurrent CREATE TABLE of the same table: exactly one wins
+# ============================================================
+
+concurrentloop i 0 8
+
+statement maybe
+CREATE TABLE w2.main.same (id INTEGER);
+----
+already exists
+
+statement ok
+CREATE TABLE IF NOT EXISTS w2.main.same_if_not_exists (id INTEGER);
+
+# The same name through two catalogs: they only meet in storage, where the Delta log decides
+statement maybe
+CREATE TABLE w.main.dual (id INTEGER);
+----
+<REGEX>:.*(already exists|conflict).*
+
+statement maybe
+CREATE TABLE w2.main.dual (id INTEGER);
+----
+<REGEX>:.*(already exists|conflict).*
+
+endloop
+
+query I
+SELECT count(*) FROM w2.main.same;
+----
+0
+
+query I
+SELECT count(*) FROM w2.main.same_if_not_exists;
+----
+0
+
+query I
+SELECT count(*) FROM delta_scan('__TEST_DIR__/dc_concurrency/dual');
+----
+0
+
+# ============================================================
+# Attached again, everything is there exactly once
+# ============================================================
+
+statement ok
+DETACH w;
+
+statement ok
+DETACH w2;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_concurrency' AS r (TYPE delta_classic);
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE database_name = 'r';
+----
+12
+
+query I
+SELECT count(*) FROM (
+    SELECT batch FROM r.main.events GROUP BY batch
+    HAVING count(*) != 100 OR count(DISTINCT id) != 100 OR min(id) != batch * 100 OR max(id) != batch * 100 + 99
+);
+----
+0
+
+query I
+SELECT count(*) = count(DISTINCT id) AND count(*) % 100 = 0 FROM r.main.events;
+----
+true
+
+statement ok
+DETACH r;

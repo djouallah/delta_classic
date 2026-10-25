@@ -12,7 +12,7 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_F
     → DiscoverSchemas: DeltaClassicListDirectory (delta_classic_path.cpp)
       → DeltaClassicSchemaEntry per schema dir
         → DeltaClassicTableSet: one "listed" DeltaClassicTableEntry per table (no columns)
-          → on lookup, Resolve(): internally runs (once, re-done after a ROLLBACK)
+          → on lookup, Resolve(): internally runs once, in a connection of its own (so no ROLLBACK undoes it)
             ATTACH 'path/table' AS __dc_<catalog id>_<n> (TYPE DELTA, HIDDEN, READ_ONLY or READ_WRITE + child_catalog_mode, internal_table_name <table>, <delta_options>)
             then looks the table up there (passing the AT clause) and returns a per-transaction
             "resolved" DeltaClassicTableEntry that copies its columns and forwards scans/stats to it

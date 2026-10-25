@@ -1,4 +1,4 @@
-"""Test that delta_classic databases reject all write operations."""
+"""Test that delta_classic databases attached without READ_ONLY false reject all write operations."""
 
 import pytest
 import duckdb
@@ -6,21 +6,21 @@ import duckdb
 
 def test_create_table_fails(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
-    with pytest.raises(duckdb.BinderException, match="read-only"):
+    with pytest.raises(duckdb.Error, match="read-only"):
         conn.execute("CREATE TABLE rodb.main.new_table (id INTEGER)")
     conn.execute("DETACH rodb")
 
 
 def test_drop_table_fails(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
-    with pytest.raises(duckdb.BinderException, match="read-only"):
+    with pytest.raises(duckdb.Error, match="read-only"):
         conn.execute("DROP TABLE rodb.main.table_a")
     conn.execute("DETACH rodb")
 
 
 def test_create_schema_fails(conn):
     conn.execute("ATTACH 'test/data/single_schema' AS rodb (TYPE delta_classic)")
-    with pytest.raises(duckdb.BinderException, match="read-only"):
+    with pytest.raises(duckdb.Error, match="read-only"):
         conn.execute("CREATE SCHEMA rodb.new_schema")
     conn.execute("DETACH rodb")
 

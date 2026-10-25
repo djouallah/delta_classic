@@ -1,0 +1,200 @@
+# name: test/sql/write_correctness.test
+# description: Data written through delta_classic reads back exactly, through delta_classic and the Delta extension
+# group: [sql]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+statement ok
+SET TimeZone = 'UTC';
+
+statement ok
+ATTACH '__TEST_DIR__/dc_correctness' AS w (TYPE delta_classic, READ_ONLY false);
+
+# ============================================================
+# Every type CREATE TABLE supports, with NULLs and edge values
+# ============================================================
+
+statement ok
+CREATE TABLE src AS
+SELECT * FROM (VALUES
+    (1, true, (-128)::TINYINT, (-32768)::SMALLINT, -2147483648, (-9223372036854775808)::BIGINT, (-1.5)::FLOAT, (-1e300)::DOUBLE,
+     (-999999999999999.999)::DECIMAL(18, 3), '', '\x00\xFF'::BLOB, '0001-01-01'::DATE, '1970-01-01 00:00:00'::TIMESTAMP,
+     '2000-01-01 00:00:00+00'::TIMESTAMPTZ, [1, NULL, 3], {'a': 1, 'b': 'x'}, MAP {'k': 1}),
+    (2, false, 127::TINYINT, 32767::SMALLINT, 2147483647, 9223372036854775807::BIGINT, 3.25::FLOAT, 1e-300::DOUBLE,
+     999999999999999.999::DECIMAL(18, 3), 'ünïcödé 🦆 "quoted" ''single''', ''::BLOB, '9999-12-31'::DATE,
+     '2262-04-11 23:47:16.854775'::TIMESTAMP, '2024-02-29 12:34:56.789012+00'::TIMESTAMPTZ, [], {'a': NULL, 'b': NULL},
+     MAP {}),
+    (3, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+) t(id, b, ti, si, i, bi, f, d, dec, s, bl, dt, ts, tstz, l, st, m);
+
+statement ok
+CREATE TABLE w.main.types (id INTEGER, b BOOLEAN, ti TINYINT, si SMALLINT, i INTEGER, bi BIGINT, f FLOAT, d DOUBLE,
+    dec DECIMAL(18, 3), s VARCHAR, bl BLOB, dt DATE, ts TIMESTAMP, tstz TIMESTAMPTZ, l INTEGER[],
+    st STRUCT(a INTEGER, b VARCHAR), m MAP(VARCHAR, INTEGER));
+
+statement ok
+INSERT INTO w.main.types SELECT * FROM src;
+
+query II
+SELECT column_name, column_type FROM (DESCRIBE w.main.types);
+----
+id	INTEGER
+b	BOOLEAN
+ti	TINYINT
+si	SMALLINT
+i	INTEGER
+bi	BIGINT
+f	FLOAT
+d	DOUBLE
+dec	DECIMAL(18,3)
+s	VARCHAR
+bl	BLOB
+dt	DATE
+ts	TIMESTAMP
+tstz	TIMESTAMP WITH TIME ZONE
+l	INTEGER[]
+st	STRUCT(a INTEGER, b VARCHAR)
+m	MAP(VARCHAR, INTEGER)
+
+# Same rows both ways, compared as text so NULLs and nested values compare too
+query I
+SELECT count(*) FROM (
+    (SELECT CAST(COLUMNS(*) AS VARCHAR) FROM w.main.types EXCEPT ALL SELECT CAST(COLUMNS(*) AS VARCHAR) FROM src)
+    UNION ALL
+    (SELECT CAST(COLUMNS(*) AS VARCHAR) FROM src EXCEPT ALL SELECT CAST(COLUMNS(*) AS VARCHAR) FROM w.main.types)
+);
+----
+0
+
+query I
+SELECT count(*) FROM (
+    SELECT CAST(COLUMNS(*) AS VARCHAR) FROM delta_scan('__TEST_DIR__/dc_correctness/types')
+    EXCEPT ALL SELECT CAST(COLUMNS(*) AS VARCHAR) FROM src
+);
+----
+0
+
+# ============================================================
+# Partitioned writes, with NULL and awkward partition values
+# ============================================================
+
+statement ok
+CREATE TABLE w.main.parts (id INTEGER, part VARCHAR, n DOUBLE) PARTITIONED BY (part);
+
+statement ok
+INSERT INTO w.main.parts
+SELECT range, CASE range % 7 WHEN 0 THEN NULL WHEN 1 THEN 'a' WHEN 2 THEN 'with space' WHEN 3 THEN 'a/b'
+    WHEN 4 THEN 'x=y' WHEN 5 THEN 'ünï 🦆' ELSE '%25' END, range / 3 FROM range(7000);
+
+query II rowsort
+SELECT part, count(*) FROM w.main.parts GROUP BY part;
+----
+%25	1000
+a	1000
+a/b	1000
+NULL	1000
+with space	1000
+x=y	1000
+ünï 🦆	1000
+
+query I
+SELECT count(*) FROM w.main.parts WHERE part = 'a/b' AND id % 7 != 3;
+----
+0
+
+query I
+SELECT count(*) FROM w.main.parts WHERE part IS NULL AND id % 7 != 0;
+----
+0
+
+query II
+SELECT sum(id), count(*) FILTER (WHERE n != id / 3) FROM w.main.parts;
+----
+24496500	0
+
+query I
+SELECT count(*) FROM delta_scan('__TEST_DIR__/dc_correctness/parts') WHERE part = 'x=y';
+----
+1000
+
+# ============================================================
+# A large insert: every row once
+# ============================================================
+
+statement ok
+CREATE TABLE w.main.big (id BIGINT, s VARCHAR);
+
+statement ok
+INSERT INTO w.main.big SELECT range, 'row ' || range FROM range(2000000);
+
+query IIII
+SELECT count(*), count(DISTINCT id), sum(id), sum(length(s)) FROM w.main.big;
+----
+2000000	2000000	1999999000000	20888890
+
+query I
+SELECT count(*) FROM w.main.big WHERE s != 'row ' || id;
+----
+0
+
+# ============================================================
+# Appends add up, and every version reads what it had
+# ============================================================
+
+statement ok
+CREATE TABLE w.main.appends (v INTEGER);
+
+loop k 1 6
+
+statement ok
+INSERT INTO w.main.appends SELECT ${k} FROM range(${k} * 10);
+
+endloop
+
+loop k 0 6
+
+query I
+SELECT count(*) = ${k} * (${k} + 1) / 2 * 10 FROM w.main.appends AT (VERSION => ${k});
+----
+true
+
+endloop
+
+# ============================================================
+# Attached again, read-only: still the same data
+# ============================================================
+
+statement ok
+DETACH w;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_correctness' AS r (TYPE delta_classic);
+
+query I
+SELECT count(*) FROM (
+    SELECT CAST(COLUMNS(*) AS VARCHAR) FROM r.main.types EXCEPT ALL SELECT CAST(COLUMNS(*) AS VARCHAR) FROM src
+);
+----
+0
+
+query II
+SELECT count(*), sum(id) FROM r.main.big;
+----
+2000000	1999999000000
+
+query I
+SELECT count(*) FROM r.main.parts;
+----
+7000
+
+statement ok
+DETACH r;

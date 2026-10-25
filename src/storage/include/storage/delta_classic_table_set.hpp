@@ -24,12 +24,10 @@ public:
 	optional_ptr<CatalogEntry> GetEntry(ClientContext &context, const EntryLookupInfo &lookup);
 	void Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback);
 	void ScanNoContext(const std::function<void(CatalogEntry &)> &callback);
-	//! The listed entry of a table, or nullptr when no such table exists
-	optional_ptr<DeltaClassicTableEntry> GetListedEntry(ClientContext &context, const string &name);
-	//! Adds a table that CREATE TABLE is about to write
-	DeltaClassicTableEntry &AddTable(const string &name, const string &path);
+	//! Adds a table that CREATE TABLE is about to write, or returns nullptr when the name is taken
+	optional_ptr<DeltaClassicTableEntry> AddTable(ClientContext &context, const string &name, const string &path);
 	//! Removes a table added by AddTable whose creation failed
-	void RemoveTable(const string &name);
+	void RemoveTable(DeltaClassicTableEntry &entry);
 
 private:
 	void LoadEntries(ClientContext &context);
@@ -39,6 +37,8 @@ private:
 	DeltaClassicSchemaEntry &schema;
 	mutex entry_lock;
 	case_insensitive_map_t<unique_ptr<DeltaClassicTableEntry>> tables;
+	//! Entries removed by RemoveTable, kept alive for lookups that may still hold them
+	vector<unique_ptr<DeltaClassicTableEntry>> removed_tables;
 	atomic<bool> is_loaded;
 };
 

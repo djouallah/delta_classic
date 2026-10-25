@@ -59,20 +59,24 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::FindEntry(const strin
 	return it->second.get();
 }
 
-optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::GetListedEntry(ClientContext &context, const string &name) {
+optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::AddTable(ClientContext &context, const string &name,
+                                                                    const string &path) {
 	LoadEntries(context);
-	return FindEntry(name);
-}
-
-DeltaClassicTableEntry &DeltaClassicTableSet::AddTable(const string &name, const string &path) {
 	lock_guard<mutex> lock(entry_lock);
+	if (tables.find(name) != tables.end()) {
+		return nullptr;
+	}
 	AddEntry(name, path);
-	return *tables[name];
+	return tables[name].get();
 }
 
-void DeltaClassicTableSet::RemoveTable(const string &name) {
+void DeltaClassicTableSet::RemoveTable(DeltaClassicTableEntry &entry) {
 	lock_guard<mutex> lock(entry_lock);
-	tables.erase(name);
+	auto it = tables.find(entry.name.GetIdentifierName());
+	if (it != tables.end() && it->second.get() == &entry) {
+		removed_tables.push_back(std::move(it->second));
+		tables.erase(it);
+	}
 }
 
 optional_ptr<CatalogEntry> DeltaClassicTableSet::GetEntry(ClientContext &context, const EntryLookupInfo &lookup) {

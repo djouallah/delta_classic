@@ -123,6 +123,7 @@ INSERT INTO db.sales.returns VALUES (1, 'eu'), (2, 'us');
 - In a directory with one schema per subdirectory, tables go in a schema: a table directly in the attached directory would turn it into a single schema. A path that is itself a Delta table can't hold new tables.
 - `TIMESTAMP` and `PIN_SNAPSHOT` can't be combined with `READ_ONLY false`.
 - Not supported, as in the Delta extension: `CREATE TABLE AS SELECT`, `CREATE OR REPLACE`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE SCHEMA`, `RETURNING`, `ON CONFLICT`.
+- Concurrent writers to one table, from any process or machine, race for its next Delta version: one wins, the others fail with a commit conflict and leave nothing behind, so retry them.
 - Each table commits on its own: a transaction that writes several tables is not atomic across them. `CREATE TABLE` is committed immediately and is not undone by `ROLLBACK`. A table written in a transaction can't be read again in that transaction.
 
 ## Limitations

@@ -42,18 +42,18 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateTable(CatalogTransacti
 	if (base.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
 		throw NotImplementedException("delta_classic does not support CREATE OR REPLACE TABLE");
 	}
-	if (tables.GetListedEntry(context, table_name)) {
+	// Claims the name, so a concurrent CREATE of the same table sees it as taken
+	auto entry = tables.AddTable(context, table_name, DeltaClassicJoinPath(schema_path, table_name));
+	if (!entry) {
 		if (base.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 			return nullptr;
 		}
 		throw CatalogException("Table with name \"%s\" already exists in \"%s.%s\"", table_name, catalog.GetName(),
 		                       name);
 	}
-
-	auto &entry = tables.AddTable(table_name, DeltaClassicJoinPath(schema_path, table_name));
 	try {
 		// The Delta extension creates the table: it validates the columns, PARTITIONED BY and WITH properties
-		auto &inner_catalog = entry.GetAttachedCatalog(context);
+		auto &inner_catalog = entry->GetAttachedCatalog(context);
 		auto inner_transaction = inner_catalog.GetCatalogTransaction(context);
 		auto &inner_schema = inner_catalog.GetSchema(inner_transaction, Identifier::DefaultSchema());
 		auto inner_base = base.Copy();
@@ -62,7 +62,7 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateTable(CatalogTransacti
 		BoundCreateTableInfo inner_info(inner_schema, std::move(inner_base));
 		inner_schema.CreateTable(inner_transaction, inner_info);
 	} catch (std::exception &) {
-		tables.RemoveTable(table_name);
+		tables.RemoveTable(*entry);
 		throw;
 	}
 	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, QualifiedName(base.GetTableName()));

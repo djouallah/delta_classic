@@ -10,6 +10,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
@@ -41,13 +42,12 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 		if (existing) {
 			return *existing;
 		}
-		// The ATTACH is part of the transaction that made it: a ROLLBACK detaches it again. Attach anew.
+		// The attach failed, or something else detached it: attach anew
 	}
 
 	auto &dc_catalog = catalog.Cast<DeltaClassicCatalog>();
 	internal_db_name = dc_catalog.CreateInternalDbName();
 
-	// Use the programmatic attach API (not context.Query which deadlocks during binding)
 	AttachInfo info;
 	info.name = Identifier(internal_db_name);
 	info.path = delta_table_path;
@@ -66,11 +66,24 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 	attach_options["hidden"] = Value::BOOLEAN(true);
 	AttachOptions options(attach_options, dc_catalog.writable ? AccessMode::READ_WRITE : AccessMode::READ_ONLY);
 
-	auto attached = db_manager.AttachDatabase(context, info, options);
+	// Attach in a transaction of its own: an ATTACH belongs to the transaction that made it, so a ROLLBACK of the
+	// caller's transaction (e.g. after a Delta commit conflict) would detach a table that other connections use
+	Connection connection(*context.db);
+	auto &attach_context = *connection.context;
+	shared_ptr<AttachedDatabase> attached;
+	attach_context.RunFunctionInTransaction([&]() {
+		auto &attach_manager = DatabaseManager::Get(attach_context);
+		attached = attach_manager.AttachDatabase(attach_context, info, options);
+	});
 	if (!attached) {
 		throw IOException("Failed to attach Delta table \"%s\" at \"%s\"", name, delta_table_path);
 	}
-	return *attached;
+	// Reference it in the caller's transaction
+	auto result = db_manager.GetDatabase(context, Identifier(internal_db_name));
+	if (!result) {
+		throw IOException("Delta table \"%s\" at \"%s\" was detached while attaching it", name, delta_table_path);
+	}
+	return *result;
 }
 
 TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context, optional_ptr<BoundAtClause> at_clause) {
