@@ -1,0 +1,61 @@
+name: Debug tests (arm64 build)
+
+# Runs sqllogictest files as plain SQL through the DuckDB CLI, against the linux_arm64 build of a Main pipeline run,
+# and prints every error. The distribution pipeline's test runner reports only the failing line; this shows the
+# message. linux_arm64 is the build that uploads its artifact even when linux_amd64's tests fail.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Main Extension Distribution Pipeline run whose linux_arm64 build to use
+        required: true
+      tests:
+        description: Test files, space separated
+        default: test/sql/pin_snapshot.test test/sql/read_only.test test/sql/write_concurrency.test
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    env:
+      DUCKDB_VERSION: v2.0.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: delta_classic-${{ env.DUCKDB_VERSION }}-extension-linux_arm64
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ./artifact
+
+      - name: Install the DuckDB CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/duckdb"
+          curl -sSfL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-arm64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/duckdb"
+
+      - name: Run the tests as SQL
+        run: |
+          for t in ${{ inputs.tests }}; do
+            echo "::group::$t"
+            dir="$RUNNER_TEMP/testdir/$(basename "$t" .test)"
+            mkdir -p "$dir"
+            # statement/query blocks become plain statements; expected results, loops and requires are dropped
+            awk -v dir="$dir" '
+              /^(statement|query) / { collecting = 1; buf = ""; next }
+              collecting && /^----/ { collecting = 0; skipping = 1; print buf (buf ~ /;[[:space:]]*$/ ? "" : ";"); next }
+              collecting && /^[[:space:]]*$/ { collecting = 0; if (buf != "") print buf (buf ~ /;[[:space:]]*$/ ? "" : ";"); next }
+              collecting { gsub("__TEST_DIR__", dir); buf = (buf == "" ? $0 : buf "\n" $0); next }
+              skipping && /^[[:space:]]*$/ { skipping = 0; next }
+              END { if (collecting && buf != "") print buf ";" }
+            ' "$t" | grep -v '\${' > "$dir/test.sql" || true
+            echo "LOAD './artifact/delta_classic.duckdb_extension';" > "$dir/init.sql"
+            "$RUNNER_TEMP/duckdb/duckdb" -unsigned -echo -init "$dir/init.sql" -f "$dir/test.sql" 2>&1 || true
+            echo "::endgroup::"
+          done
