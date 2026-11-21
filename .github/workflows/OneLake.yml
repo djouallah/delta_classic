@@ -47,12 +47,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download the extension
+      - name: Download the extension of the run that triggered this one
+        if: ${{ github.event_name == 'workflow_run' }}
         uses: dawidd6/action-download-artifact@v6
         with:
           name: delta_classic-${{ env.DUCKDB_VERSION }}-extension-linux_amd64
-          # The run that triggered this one, or (dispatched) the latest successful build of main
           run_id: ${{ github.event.workflow_run.id }}
+          path: ./artifact
+
+      - name: Download the extension of the latest successful build of main
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: delta_classic-${{ env.DUCKDB_VERSION }}-extension-linux_amd64
           workflow: MainDistributionPipeline.yml
           workflow_conclusion: success
           branch: main
@@ -66,7 +73,8 @@ jobs:
           ls -l "$RUNNER_TEMP/duckdb"
           "$RUNNER_TEMP/duckdb/duckdb" -c "INSTALL delta; INSTALL azure; SELECT version();"
 
-      - uses: azure/login@v3
+      - id: login
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -90,7 +98,7 @@ jobs:
           "$RUNNER_TEMP/duckdb/duckdb" -unsigned -bail -init "$RUNNER_TEMP/prelude.sql" -echo -f "$RUNNER_TEMP/onelake.sql"
 
       - name: Remove the test schema
-        if: ${{ always() && !inputs.keep }}
+        if: ${{ always() && !inputs.keep && steps.login.outcome == 'success' }}
         run: |
           TOKEN=$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)
           echo "::add-mask::$TOKEN"
