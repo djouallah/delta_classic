@@ -97,16 +97,16 @@ INSERT INTO w.main.parts
 SELECT range, CASE range % 7 WHEN 0 THEN NULL WHEN 1 THEN 'a' WHEN 2 THEN 'with space' WHEN 3 THEN 'a/b'
     WHEN 4 THEN 'x=y' WHEN 5 THEN 'ünï 🦆' ELSE '%25' END, range / 3 FROM range(7000);
 
-query II rowsort
-SELECT part, count(*) FROM w.main.parts GROUP BY part;
+query II
+SELECT part, count(*) FROM w.main.parts GROUP BY part ORDER BY part NULLS LAST;
 ----
 %25	1000
 a	1000
 a/b	1000
-NULL	1000
 with space	1000
 x=y	1000
 ünï 🦆	1000
+NULL	1000
 
 query I
 SELECT count(*) FROM w.main.parts WHERE part = 'a/b' AND id % 7 != 3;

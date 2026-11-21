@@ -87,7 +87,8 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 	return *result;
 }
 
-TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context, optional_ptr<BoundAtClause> at_clause) {
+optional_ptr<TableCatalogEntry> DeltaClassicTableEntry::LookupInner(ClientContext &context,
+                                                                    optional_ptr<BoundAtClause> at_clause) {
 	auto &attached = EnsureAttached(context);
 	auto &inner_catalog = attached.GetCatalog();
 	CatalogTransaction inner_transaction(inner_catalog, context);
@@ -96,7 +97,8 @@ TableCatalogEntry &DeltaClassicTableEntry::LookupInner(ClientContext &context, o
 	EntryLookupInfo inner_lookup(CatalogType::TABLE_ENTRY, QualifiedName(name), at_clause, QueryErrorContext());
 	auto entry = inner_schema.LookupEntry(inner_transaction, inner_lookup);
 	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
-		throw CatalogException("Delta table \"%s\" at \"%s\" could not be read", name, delta_table_path);
+		// No Delta table there (yet): e.g. a CREATE TABLE that another connection has claimed but not committed
+		return nullptr;
 	}
 	return entry->Cast<TableCatalogEntry>();
 }
@@ -109,8 +111,18 @@ static string ResolvedKey(const string &path, optional_ptr<BoundAtClause> at_cla
 }
 
 DeltaClassicTableEntry &DeltaClassicTableEntry::Resolve(ClientContext &context, optional_ptr<BoundAtClause> at_clause) {
+	auto resolved = TryResolve(context, at_clause);
+	if (!resolved) {
+		throw CatalogException("Delta table \"%s\" at \"%s\" could not be read", name.GetIdentifierName(),
+		                       delta_table_path);
+	}
+	return *resolved;
+}
+
+optional_ptr<DeltaClassicTableEntry> DeltaClassicTableEntry::TryResolve(ClientContext &context,
+                                                                        optional_ptr<BoundAtClause> at_clause) {
 	if (inner) {
-		return *this;
+		return this;
 	}
 	auto &transaction = DeltaClassicTransaction::Get(context, catalog);
 	auto key = ResolvedKey(delta_table_path, at_clause);
@@ -118,10 +130,13 @@ DeltaClassicTableEntry &DeltaClassicTableEntry::Resolve(ClientContext &context, 
 	if (existing) {
 		return *existing;
 	}
-	auto &inner_entry = LookupInner(context, at_clause);
+	auto inner_entry = LookupInner(context, at_clause);
+	if (!inner_entry) {
+		return nullptr;
+	}
 	CreateTableInfo info(schema, name);
-	auto resolved = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, delta_table_path, inner_entry);
-	return transaction.AddResolvedTable(key, std::move(resolved));
+	auto resolved = make_uniq<DeltaClassicTableEntry>(catalog, schema, info, delta_table_path, *inner_entry);
+	return &transaction.AddResolvedTable(key, std::move(resolved));
 }
 
 optional_ptr<DeltaClassicTableEntry> DeltaClassicTableEntry::TryGetResolved(ClientContext &context) {
@@ -138,7 +153,8 @@ Catalog &DeltaClassicTableEntry::GetAttachedCatalog(ClientContext &context) {
 
 Catalog &DeltaClassicTableEntry::GetInnerCatalog() {
 	if (!inner) {
-		throw InternalException("delta_classic: table \"%s\" is not resolved", name);
+		throw CatalogException("Delta table \"%s\" at \"%s\" could not be read", name.GetIdentifierName(),
+		                       delta_table_path);
 	}
 	return inner->ParentCatalog();
 }

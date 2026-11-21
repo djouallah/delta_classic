@@ -73,7 +73,13 @@ optional_ptr<CatalogEntry> DeltaClassicTableSet::GetEntry(ClientContext &context
 	if (!entry) {
 		return nullptr;
 	}
-	return entry->Resolve(context, lookup.GetAtClause());
+	auto resolved = entry->TryResolve(context, lookup.GetAtClause());
+	if (!resolved) {
+		// The name is taken, by a CREATE TABLE that hasn't written its Delta table yet: report the table as there
+		// (so CREATE TABLE IF NOT EXISTS skips it); reading it fails with "could not be read"
+		return entry.get();
+	}
+	return resolved.get();
 }
 
 void DeltaClassicTableSet::Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback) {

@@ -39,6 +39,8 @@ public:
 	//! Listed entries only: the resolved entry for this transaction and AT clause, attaching the Delta table on
 	//! first use
 	DeltaClassicTableEntry &Resolve(ClientContext &context, optional_ptr<BoundAtClause> at_clause);
+	//! Like Resolve, but nullptr when there is no Delta table at the path (yet)
+	optional_ptr<DeltaClassicTableEntry> TryResolve(ClientContext &context, optional_ptr<BoundAtClause> at_clause);
 	//! Listed entries only: the resolved entry of the current transaction without an AT clause, if any
 	optional_ptr<DeltaClassicTableEntry> TryGetResolved(ClientContext &context);
 	//! Listed entries only: the internal Delta catalog, attaching it if needed. Its table may not exist yet.
@@ -49,8 +51,8 @@ public:
 private:
 	//! Attaches the Delta table if it isn't (or no longer is, e.g. after a ROLLBACK) attached
 	AttachedDatabase &EnsureAttached(ClientContext &context);
-	//! Looks up the table in the internal Delta catalog, passing the AT clause through
-	TableCatalogEntry &LookupInner(ClientContext &context, optional_ptr<BoundAtClause> at_clause);
+	//! Looks up the table in the internal Delta catalog, passing the AT clause through; nullptr if there is none
+	optional_ptr<TableCatalogEntry> LookupInner(ClientContext &context, optional_ptr<BoundAtClause> at_clause);
 	//! The entry that scans are forwarded to
 	DeltaClassicTableEntry &GetResolved(ClientContext &context);
 
