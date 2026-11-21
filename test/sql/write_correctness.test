@@ -4,6 +4,8 @@
 
 require delta_classic
 
+require icu
+
 statement ok
 INSTALL parquet;
 

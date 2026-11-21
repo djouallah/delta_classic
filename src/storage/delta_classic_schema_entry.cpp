@@ -143,7 +143,7 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicSchemaEntry::ClaimTable(ClientC
 	auto &table_name = base.GetTableName().GetIdentifierName();
 	if (dc_catalog.layout == DeltaClassicLayout::SINGLE_TABLE) {
 		throw BinderException("delta_classic: \"%s\" is attached as a single Delta table, so it can't hold new tables",
-		                      catalog.GetName());
+		                      catalog.GetName().GetIdentifierName());
 	}
 	if (!HoldsTables()) {
 		if (kind == DeltaClassicSchemaKind::LAKEHOUSE) {
@@ -153,7 +153,7 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicSchemaEntry::ClaimTable(ClientC
 		}
 		// A table directly in the base directory would turn the database into a single schema
 		throw BinderException("delta_classic: \"%s\" has one schema per directory, so create the table in one of them",
-		                      catalog.GetName());
+		                      catalog.GetName().GetIdentifierName());
 	}
 	if (base.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
 		throw NotImplementedException("delta_classic does not support CREATE OR REPLACE TABLE");
@@ -164,8 +164,8 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicSchemaEntry::ClaimTable(ClientC
 		if (base.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 			return nullptr;
 		}
-		throw CatalogException("Table with name \"%s\" already exists in \"%s.%s\"", table_name, catalog.GetName(),
-		                       GetSchemaName());
+		throw CatalogException("Table with name \"%s\" already exists in \"%s.%s\"", table_name,
+		                       catalog.GetName().GetIdentifierName(), GetSchemaName());
 	}
 	auto expected = DeltaClassicLayout::EMPTY;
 	if (schema_path == dc_catalog.base_path) {
@@ -214,13 +214,13 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateChildSchema(ClientCont
 			                      GetSchemaName());
 		}
 		throw BinderException("delta_classic: \"%s.%s\" can't hold schemas, so create the schema at the top level",
-		                      catalog.GetName(), GetSchemaName());
+		                      catalog.GetName().GetIdentifierName(), GetSchemaName());
 	}
 	if (dc_catalog.layout == DeltaClassicLayout::EMPTY && schema_path == dc_catalog.base_path) {
 		// The directory would be read back as a top-level schema
 		throw BinderException("delta_classic: \"%s\" is empty, so create the schema at the top level: CREATE SCHEMA "
 		                      "%s.%s",
-		                      catalog.GetName(), catalog.GetName(), child);
+		                      catalog.GetName().GetIdentifierName(), catalog.GetName().GetIdentifierName(), child);
 	}
 	EnsureListed(context);
 	if (FindChild(child)) {

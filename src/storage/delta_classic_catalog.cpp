@@ -284,15 +284,15 @@ optional_ptr<CatalogEntry> DeltaClassicCatalog::CreateTopLevelSchema(ClientConte
 	switch (layout.load()) {
 	case DeltaClassicLayout::SINGLE_TABLE:
 		throw BinderException("delta_classic: \"%s\" is attached as a single Delta table, so it can't hold schemas",
-		                      GetName());
+		                      GetName().GetIdentifierName());
 	case DeltaClassicLayout::SINGLE_SCHEMA:
 		throw BinderException("delta_classic: \"%s\" holds its tables in main, so create the schema in it: CREATE "
 		                      "SCHEMA %s.main.%s",
-		                      GetName(), GetName(), name);
+		                      GetName().GetIdentifierName(), GetName().GetIdentifierName(), name);
 	case DeltaClassicLayout::WORKSPACE:
 		throw BinderException("delta_classic: \"%s\" is a workspace, whose schemas are its lakehouses: create the "
 		                      "lakehouse in Fabric, or the schema in a lakehouse (CREATE SCHEMA %s.<lakehouse>.%s)",
-		                      GetName(), GetName(), name);
+		                      GetName().GetIdentifierName(), GetName().GetIdentifierName(), name);
 	case DeltaClassicLayout::LAKEHOUSE:
 		path = DeltaClassicJoinPath(DeltaClassicJoinPath(base_path, DELTA_CLASSIC_LAKEHOUSE_TABLES), name);
 		kind = DeltaClassicSchemaKind::LAKEHOUSE_SCHEMA;

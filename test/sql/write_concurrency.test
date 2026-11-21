@@ -40,16 +40,24 @@ loop j 0 5
 # batch. The checks after the loop prove that.
 statement maybe
 INSERT INTO w.main.events SELECT (${i} * 10 + ${j}) * 100 + range, ${i} * 10 + ${j}, 'w' FROM range(100);
+----
+<REGEX>:.*
 
 statement maybe
 INSERT INTO w2.main.events SELECT (${i} * 10 + ${j} + 5) * 100 + range, ${i} * 10 + ${j} + 5, 'w2' FROM range(100);
+----
+<REGEX>:.*
 
 # Writes the Delta extension doesn't do are refused mid-flight too, and change nothing
 statement error
 DELETE FROM w.main.events WHERE batch = ${i} * 10 + ${j};
+----
+<REGEX>:.*
 
 statement error
 UPDATE w2.main.events SET payload = 'updated' WHERE batch = ${i} * 10 + ${j} + 5;
+----
+<REGEX>:.*
 
 # Whatever a reader sees mid-flight is made of whole commits
 query I
@@ -114,6 +122,8 @@ BEGIN;
 
 statement maybe
 INSERT INTO w2.main.events SELECT 1000000 + ${i} * 100 + range, -1, 'rolled back' FROM range(100);
+----
+<REGEX>:.*
 
 statement ok
 ROLLBACK;
@@ -156,6 +166,8 @@ concurrentloop i 0 8
 
 statement maybe
 CREATE TABLE w2.main.same (id INTEGER);
+----
+<REGEX>:.*
 
 statement ok
 CREATE TABLE IF NOT EXISTS w2.main.same_if_not_exists (id INTEGER);
@@ -163,9 +175,13 @@ CREATE TABLE IF NOT EXISTS w2.main.same_if_not_exists (id INTEGER);
 # The same name through two catalogs: they only meet in storage, where the Delta log decides
 statement maybe
 CREATE TABLE w.main.dual (id INTEGER);
+----
+<REGEX>:.*
 
 statement maybe
 CREATE TABLE w2.main.dual (id INTEGER);
+----
+<REGEX>:.*
 
 endloop
 
@@ -192,12 +208,18 @@ concurrentloop i 0 8
 
 statement maybe
 CREATE TABLE w2.main.ctas_same AS SELECT ${i} AS creator, range AS n FROM range(1000);
+----
+<REGEX>:.*
 
 statement maybe
 CREATE TABLE w.main.ctas_dual AS SELECT ${i} AS creator, range AS n FROM range(1000);
+----
+<REGEX>:.*
 
 statement maybe
 CREATE TABLE w2.main.ctas_dual AS SELECT ${i} + 100 AS creator, range AS n FROM range(1000);
+----
+<REGEX>:.*
 
 endloop
 
@@ -219,6 +241,8 @@ concurrentloop i 0 8
 
 statement maybe
 CREATE SCHEMA w2.main.nested;
+----
+<REGEX>:.*
 
 # The schema exists once any CREATE SCHEMA returned, so each distinct table is created
 statement ok
