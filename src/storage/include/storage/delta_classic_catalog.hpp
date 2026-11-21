@@ -96,6 +96,9 @@ private:
 	                                   optional_ptr<const DeltaClassicListing> listing);
 	void AddLakehouseSchemas(ClientContext &context, const string &lakehouse_path, const DeltaClassicListing &listing);
 	void AddWorkspaceItems(ClientContext &context, const DeltaClassicListing &listing);
+	//! A top-level schema by name (in a workspace, probing for a lakehouse not listed yet), or nullptr
+	optional_ptr<DeltaClassicSchemaEntry> LookupTopLevelSchema(CatalogTransaction transaction,
+	                                                           const string &schema_name);
 	//! Workspace layout: finds the lakehouse <name>.Lakehouse (or <id>) without listing the workspace
 	optional_ptr<DeltaClassicSchemaEntry> ProbeLakehouse(ClientContext &context, const string &name);
 	optional_ptr<CatalogEntry> CreateTopLevelSchema(ClientContext &context, const string &name,

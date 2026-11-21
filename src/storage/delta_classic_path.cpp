@@ -199,7 +199,8 @@ DeltaClassicListing DeltaClassicListDirectory(FileSystem &fs, const string &path
 void DeltaClassicCreateDirectory(ClientContext &context, const string &path) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	try {
-		fs.CreateDirectory(path);
+		// Its parents too: the attached directory may not exist yet
+		fs.CreateDirectoriesRecursive(path);
 	} catch (std::exception &ex) {
 		ErrorData error(ex);
 		if (error.Type() != ExceptionType::NOT_IMPLEMENTED) {

@@ -346,9 +346,17 @@ optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransa
 	if (transaction.HasContext()) {
 		DiscoverSchemas(transaction.GetContext());
 	}
+	// The lookup carries the whole (possibly nested) schema path: find the top-level schema here, and let the base
+	// catalog walk down from it through each schema's LookupEntry(SCHEMA_ENTRY)
+	return LookupSchemaPath(transaction, schema_lookup, if_not_found,
+	                        [&](const EntryLookupInfo &root) -> optional_ptr<CatalogEntry> {
+		                        auto schema = LookupTopLevelSchema(transaction, root.GetEntryName());
+		                        return schema ? schema.get() : nullptr;
+	                        });
+}
 
-	auto &schema_name = schema_lookup.GetEntryName();
-
+optional_ptr<DeltaClassicSchemaEntry> DeltaClassicCatalog::LookupTopLevelSchema(CatalogTransaction transaction,
+                                                                                const string &schema_name) {
 	{
 		lock_guard<mutex> lock(schema_lock);
 
@@ -367,16 +375,9 @@ optional_ptr<SchemaCatalogEntry> DeltaClassicCatalog::LookupSchema(CatalogTransa
 	}
 
 	if (layout == DeltaClassicLayout::WORKSPACE && transaction.HasContext() && !schema_name.empty()) {
-		auto lakehouse = ProbeLakehouse(transaction.GetContext(), schema_name);
-		if (lakehouse) {
-			return lakehouse.get();
-		}
+		return ProbeLakehouse(transaction.GetContext(), schema_name);
 	}
-
-	if (if_not_found == OnEntryNotFound::RETURN_NULL) {
-		return nullptr;
-	}
-	throw BinderException("Schema \"%s\" not found in delta_classic catalog \"%s\"", schema_name, GetName());
+	return nullptr;
 }
 
 ErrorData DeltaClassicCatalog::SupportsCreateTable(BoundCreateTableInfo &info) {
