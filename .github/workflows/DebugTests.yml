@@ -54,8 +54,10 @@ jobs:
               collecting { gsub("__TEST_DIR__", dir); buf = (buf == "" ? $0 : buf "\n" $0); next }
               skipping && /^[[:space:]]*$/ { skipping = 0; next }
               END { if (collecting && buf != "") print buf ";" }
-            ' "$t" | grep -v '\${' > "$dir/test.sql" || true
+            ' "$t" | grep -v '\${' > "$dir/body.sql" || true
+            # Keep going after an error: tests expect some
+            { echo ".bail off"; cat "$dir/body.sql"; } > "$dir/test.sql"
             echo "LOAD './artifact/delta_classic.duckdb_extension';" > "$dir/init.sql"
-            "$RUNNER_TEMP/duckdb/duckdb" -unsigned -echo -init "$dir/init.sql" -f "$dir/test.sql" 2>&1 || true
+            "$RUNNER_TEMP/duckdb/duckdb" -unsigned -echo -init "$dir/init.sql" < "$dir/test.sql" 2>&1 || true
             echo "::endgroup::"
           done
