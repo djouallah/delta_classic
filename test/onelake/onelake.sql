@@ -44,8 +44,8 @@ SELECT CASE WHEN (SELECT string_agg(name || '=' || n || '/' || total, ',' ORDER 
     = 'ann=2/40.0,bob=1/20.0' THEN 'ok: by_person' ELSE error('by_person: wrong rows') END;
 SELECT CASE WHEN (SELECT COUNT(*) FROM lh.${SCHEMA}.empty) = 0 THEN 'ok: empty'
     ELSE error('empty: expected no rows') END;
-SELECT CASE WHEN (SELECT string_agg(column_name, ',' ORDER BY column_index) FROM duckdb_columns()
-    WHERE database_name = 'lh' AND table_name = 'people') = 'id,name' THEN 'ok: IF NOT EXISTS'
+-- If IF NOT EXISTS had replaced people, it would have a column "other" and no "name"
+SELECT CASE WHEN (SELECT count(name) FROM lh.${SCHEMA}.people) = 2 THEN 'ok: IF NOT EXISTS'
     ELSE error('people: IF NOT EXISTS replaced the table') END;
 
 -- One transaction writes two tables; a rolled back INSERT is discarded
