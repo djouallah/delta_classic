@@ -12,7 +12,7 @@ on:
         required: true
       tests:
         description: Test files, space separated
-        default: test/sql/pin_snapshot.test test/sql/read_only.test test/sql/write_concurrency.test
+        default: test/sql/*.test
 
 permissions:
   contents: read

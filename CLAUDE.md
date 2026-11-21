@@ -48,7 +48,7 @@ ATTACH 'path' AS db (TYPE delta_classic, PIN_SNAPSHOT, TIMESTAMP ..., PUSHDOWN_F
 2. **Lazy everything** — schemas discovered on first lookup, tables listed on first access, internal ATTACH on first query
 3. **FileSystem abstraction** — works with local, S3, ABFSS, GCS paths automatically
 4. **Read-only by default** — `READ_ONLY false` makes the database writable: each internal ATTACH is then `READ_WRITE` with `child_catalog_mode`, `PlanInsert` and `PlanCreateTableAs` forward to the inner `DeltaCatalog` (which resolves its own table entry), and `CreateTable` calls the inner `main` schema's `CreateTable`. Both kinds of CREATE claim the name first (`DeltaClassicSchemaEntry::ClaimTable`). `CREATE SCHEMA` creates the directory. Only the delta_classic database is registered as modified; the inner Delta transactions commit with it. The access mode must be applied with `AttachedDatabase::SetReadOnlyDatabase()`: changing `options.access_mode` in the attach callback has no effect
-5. **Delta options go in `AttachInfo::options`** — the Delta extension reads its options (PIN_SNAPSHOT, TIMESTAMP, ...) from the `AttachInfo`, not from `AttachOptions`
+5. **Delta options go in `AttachOptions`** — since DuckDB 2.0.1 the Delta extension reads its options (internal_table_name, child_catalog_mode, PIN_SNAPSHOT, TIMESTAMP, ...) from `AttachOptions::options`, and rejects ones it does not know; v2.0.0 read them from the `AttachInfo`. Both are set
 6. **Per-transaction table entries** — like duckdb-delta, so columns match the snapshot being read and nothing shared is mutated
 
 ## Building & Testing

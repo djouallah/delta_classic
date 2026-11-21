@@ -51,16 +51,17 @@ AttachedDatabase &DeltaClassicTableEntry::EnsureAttached(ClientContext &context)
 	AttachInfo info;
 	info.name = Identifier(internal_db_name);
 	info.path = delta_table_path;
-	// The Delta extension reads its options from the AttachInfo
-	info.options = dc_catalog.delta_options;
+	auto delta_options = dc_catalog.delta_options;
 	// Name the Delta table after this table, not after the internal database (CREATE TABLE writes it into the log)
-	info.options["internal_table_name"] = Value(name.GetIdentifierName());
+	delta_options["internal_table_name"] = Value(name.GetIdentifierName());
 	if (dc_catalog.writable) {
 		// Inserts are planned through this catalog: the Delta extension then resolves its own table entry
-		info.options["child_catalog_mode"] = Value::BOOLEAN(true);
+		delta_options["child_catalog_mode"] = Value::BOOLEAN(true);
 	}
+	// The Delta extension reads its options from the AttachOptions (since DuckDB 2.0.1; before, from the AttachInfo)
+	info.options = delta_options;
 
-	auto attach_options = dc_catalog.delta_options;
+	auto attach_options = delta_options;
 	attach_options["type"] = Value("delta");
 	// Keep the internal database out of SHOW DATABASES / duckdb_databases()
 	attach_options["hidden"] = Value::BOOLEAN(true);
