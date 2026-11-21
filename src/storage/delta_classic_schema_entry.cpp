@@ -98,7 +98,11 @@ void DeltaClassicSchemaEntry::ApplyListing(const DeltaClassicListing &listing) {
 			entries.emplace_back(table, DeltaClassicJoinPath(schema_path, table));
 		}
 	}
-	// Tables directly in a lakehouse's Tables directory (a lakehouse without schemas) are left out
+	// Tables directly in a lakehouse's Tables directory are left out. With no schema there, the lakehouse is refused
+	// when it is used (not listed: a workspace's other lakehouses still list)
+	if (kind == DeltaClassicSchemaKind::LAKEHOUSE && DeltaClassicIsLakehouseWithoutSchemas(listing)) {
+		without_schemas = true;
+	}
 	tables.SetEntries(entries);
 	auto child_kind = DeltaClassicSchemaKind::DIRECTORY;
 	if (ChildKind(child_kind)) {
@@ -147,7 +151,7 @@ optional_ptr<DeltaClassicTableEntry> DeltaClassicSchemaEntry::ClaimTable(ClientC
 	}
 	if (!HoldsTables()) {
 		if (kind == DeltaClassicSchemaKind::LAKEHOUSE) {
-			throw BinderException("delta_classic: \"%s\" is a Fabric lakehouse, so create the table in one of its "
+			throw BinderException("delta_classic: %s is a Fabric lakehouse, so create the table in one of its "
 			                      "schemas, e.g. %s.dbo.%s",
 			                      GetSchemaName(), GetSchemaName(), table_name);
 		}
@@ -210,7 +214,7 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateChildSchema(ClientCont
 	auto child_kind = DeltaClassicSchemaKind::DIRECTORY;
 	if (!ChildKind(child_kind)) {
 		if (kind == DeltaClassicSchemaKind::LAKEHOUSE_SCHEMA) {
-			throw BinderException("delta_classic: \"%s\" is a schema of a Fabric lakehouse, and those don't nest",
+			throw BinderException("delta_classic: %s is a schema of a Fabric lakehouse, and those don't nest",
 			                      GetSchemaName());
 		}
 		throw BinderException("delta_classic: \"%s.%s\" can't hold schemas, so create the schema at the top level",
@@ -223,6 +227,9 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateChildSchema(ClientCont
 		                      catalog.GetName().GetIdentifierName(), catalog.GetName().GetIdentifierName(), child);
 	}
 	EnsureListed(context);
+	if (without_schemas) {
+		throw BinderException(DeltaClassicLakehouseWithoutSchemasError(name.GetIdentifierName(), schema_path));
+	}
 	if (FindChild(child)) {
 		if (on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 			return nullptr;
@@ -280,6 +287,12 @@ optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::CreateType(CatalogTransactio
 
 optional_ptr<CatalogEntry> DeltaClassicSchemaEntry::LookupEntry(CatalogTransaction transaction,
                                                                 const EntryLookupInfo &lookup_info) {
+	if (transaction.HasContext()) {
+		EnsureListed(transaction.GetContext());
+		if (without_schemas) {
+			throw BinderException(DeltaClassicLakehouseWithoutSchemasError(name.GetIdentifierName(), schema_path));
+		}
+	}
 	switch (lookup_info.GetCatalogType()) {
 	case CatalogType::SCHEMA_ENTRY:
 		// A nested schema: <this schema>.<name>

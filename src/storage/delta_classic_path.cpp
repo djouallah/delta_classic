@@ -118,6 +118,16 @@ bool DeltaClassicIsOneLakeWorkspace(const string &path) {
 	return remainder.empty();
 }
 
+bool DeltaClassicIsLakehouseWithoutSchemas(const DeltaClassicListing &tables_listing) {
+	return !tables_listing.tables.empty() && tables_listing.directories.empty();
+}
+
+string DeltaClassicLakehouseWithoutSchemasError(const string &lakehouse, const string &tables_path) {
+	return "delta_classic: lakehouse \"" + lakehouse +
+	       "\" has no schemas (its tables are directly in Tables), which delta_classic does not read. Attach '" +
+	       tables_path + "' instead: its tables are then <db>.main.<table>";
+}
+
 //! Records one object key of a recursive listing, given as path components relative to the listed directory
 static void AddRecursiveEntry(DeltaClassicListing &root, const vector<string> &parts) {
 	idx_t delta_log = parts.size();

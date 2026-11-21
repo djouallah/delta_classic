@@ -84,6 +84,8 @@ private:
 
 	mutex listing_lock;
 	atomic<bool> listed;
+	//! A LAKEHOUSE whose Tables directory holds tables but no schemas: using it is refused
+	atomic<bool> without_schemas {false};
 	mutex child_lock;
 	case_insensitive_map_t<unique_ptr<DeltaClassicSchemaEntry>> children;
 };

@@ -181,7 +181,7 @@ CREATE TABLE lh.staging.daily AS           -- Tables/staging/daily
 ```
 
 - A lakehouse is a `<name>.Lakehouse` directory, or a directory holding `Tables` and `Files` (a lakehouse addressed by id: `abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>`).
-- Only lakehouses with schemas are supported: tables directly in `Tables` are left out. Lakehouse schemas don't nest.
+- Only lakehouses with schemas are supported. Using a lakehouse without schemas (its tables directly in `Tables`) fails with an error that says to attach its `Tables` directory instead, which reads it as `<db>.main.<table>`. In a lakehouse with schemas, stray tables directly in `Tables` are left out. Lakehouse schemas don't nest.
 - Lakehouses can't be created from DuckDB: create them in Fabric. `CREATE SCHEMA` creates a schema inside a lakehouse.
 - In a workspace, a lakehouse is found by name or id the first time it is looked up. Listing a OneLake workspace fails with the Azure SDK the azure extension uses today ([duckdb-azure#226](https://github.com/duckdb/duckdb-azure/issues/226)), so until that is fixed `duckdb_schemas()` shows only the lakehouses already looked up, and a single OneLake table can't be attached on its own.
 - Write in autocommit mode: on OneLake, an `INSERT` inside an explicit `BEGIN ... COMMIT` can fail with an internal error in the Delta and azure extensions, with or without delta_classic.

@@ -99,6 +99,11 @@ void DeltaClassicCatalog::AddLakehouseSchemas(ClientContext &context, const stri
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto tables_path = DeltaClassicJoinPath(lakehouse_path, DELTA_CLASSIC_LAKEHOUSE_TABLES);
 	auto tables_listing = ListChild(fs, lakehouse_path, listing, DELTA_CLASSIC_LAKEHOUSE_TABLES);
+	if (DeltaClassicIsLakehouseWithoutSchemas(tables_listing)) {
+		auto lakehouse = DeltaClassicLakehouseName(DeltaClassicLastComponent(lakehouse_path));
+		throw BinderException(DeltaClassicLakehouseWithoutSchemasError(
+		    lakehouse.empty() ? DeltaClassicLastComponent(lakehouse_path) : lakehouse, tables_path));
+	}
 	for (auto &directory : tables_listing.directories) {
 		optional_ptr<const DeltaClassicListing> schema_listing;
 		auto entry = tables_listing.children.find(directory);

@@ -95,6 +95,19 @@ CREATE TABLE x.x (i INTEGER);
 statement ok
 DETACH x;
 
+# A lakehouse without schemas: its tables are directly in Tables
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/old.Lakehouse/Tables/legacy' AS legacy (TYPE delta);
+
+statement ok
+CREATE TABLE legacy.legacy (i INTEGER);
+
+statement ok
+INSERT INTO legacy.legacy VALUES (42);
+
+statement ok
+DETACH legacy;
+
 # ============================================================
 # The workspace, read-only: <db>.<lakehouse>.<schema>.<table>
 # ============================================================
@@ -121,6 +134,7 @@ SELECT schema_name, parent_schema FROM duckdb_schemas() WHERE database_name = 'w
 dbo	hr
 dbo	sales
 hr	NULL
+old	NULL
 sales	NULL
 
 query II rowsort
@@ -139,6 +153,17 @@ statement error
 SELECT * FROM ws.sales.legacy_t;
 ----
 <REGEX>:.*(legacy_t|not found|does not exist).*
+
+# A lakehouse without schemas is refused when used, with the way out
+statement error
+SELECT * FROM ws.old.legacy;
+----
+has no schemas
+
+statement error
+SELECT * FROM ws.old.dbo.legacy;
+----
+has no schemas
 
 # A lakehouse addressed by its id is found when looked up
 query I
@@ -307,6 +332,7 @@ dbo	hr
 dbo	sales
 gold	sales
 hr	NULL
+old	NULL
 sales	NULL
 staging	sales
 
@@ -324,3 +350,27 @@ dbo	events
 
 statement ok
 DETACH byid;
+
+# A lakehouse without schemas, attached itself: refused, pointing at its Tables directory
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/old.Lakehouse' AS old (TYPE delta_classic);
+
+statement error
+SELECT * FROM old.main.legacy;
+----
+has no schemas
+
+statement ok
+DETACH old;
+
+# Its Tables directory is a single schema, as it always was
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/old.Lakehouse/Tables' AS old_tables (TYPE delta_classic);
+
+query I
+SELECT i FROM old_tables.main.legacy;
+----
+42
+
+statement ok
+DETACH old_tables;

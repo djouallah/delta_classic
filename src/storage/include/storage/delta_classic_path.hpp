@@ -22,6 +22,11 @@ static constexpr const char *DELTA_CLASSIC_LAKEHOUSE_TABLES = "Tables";
 string DeltaClassicLakehouseName(const string &item_directory);
 //! Whether the path is the root of a OneLake workspace ("abfss://<workspace>@onelake.dfs.fabric.microsoft.com/")
 bool DeltaClassicIsOneLakeWorkspace(const string &path);
+//! Whether a listing of a lakehouse's Tables directory is that of a lakehouse without schemas (tables only)
+struct DeltaClassicListing;
+bool DeltaClassicIsLakehouseWithoutSchemas(const DeltaClassicListing &tables_listing);
+//! The error for a lakehouse without schemas, which delta_classic does not read
+string DeltaClassicLakehouseWithoutSchemasError(const string &lakehouse, const string &tables_path);
 
 //! What one listing of a directory found
 struct DeltaClassicListing {
