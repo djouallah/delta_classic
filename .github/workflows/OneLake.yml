@@ -96,7 +96,9 @@ jobs:
           export SCHEMA
           envsubst '${WS} ${LH} ${LH_ID} ${SCHEMA}' < test/onelake/onelake.sql > "$RUNNER_TEMP/onelake.sql"
           # The whole file runs; then the errors it raised must be exactly the expected ones, in order
-          "$RUNNER_TEMP/duckdb/duckdb" -unsigned -init "$RUNNER_TEMP/prelude.sql" -echo -f "$RUNNER_TEMP/onelake.sql" \
+          # (-f stops at the first error: read the file from stdin, after .bail off)
+          { echo ".bail off"; cat "$RUNNER_TEMP/onelake.sql"; } \
+            | "$RUNNER_TEMP/duckdb/duckdb" -unsigned -init "$RUNNER_TEMP/prelude.sql" -echo \
             2>&1 | tee "$RUNNER_TEMP/output.txt" || true
           grep '^-- expect-error: ' test/onelake/onelake.sql | sed 's/^-- expect-error: //' > "$RUNNER_TEMP/expected.txt"
           grep -E '^[A-Za-z ]+ Error: ' "$RUNNER_TEMP/output.txt" > "$RUNNER_TEMP/errors.txt" || true
