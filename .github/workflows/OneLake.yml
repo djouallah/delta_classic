@@ -95,7 +95,22 @@ jobs:
           export LH_ID="${FABRIC_LAKEHOUSE_ID}"
           export SCHEMA
           envsubst '${WS} ${LH} ${LH_ID} ${SCHEMA}' < test/onelake/onelake.sql > "$RUNNER_TEMP/onelake.sql"
-          "$RUNNER_TEMP/duckdb/duckdb" -unsigned -bail -init "$RUNNER_TEMP/prelude.sql" -echo -f "$RUNNER_TEMP/onelake.sql"
+          # The whole file runs; then the errors it raised must be exactly the expected ones, in order
+          "$RUNNER_TEMP/duckdb/duckdb" -unsigned -init "$RUNNER_TEMP/prelude.sql" -echo -f "$RUNNER_TEMP/onelake.sql" \
+            2>&1 | tee "$RUNNER_TEMP/output.txt" || true
+          grep '^-- expect-error: ' test/onelake/onelake.sql | sed 's/^-- expect-error: //' > "$RUNNER_TEMP/expected.txt"
+          grep -E '^[A-Za-z ]+ Error: ' "$RUNNER_TEMP/output.txt" > "$RUNNER_TEMP/errors.txt" || true
+          echo "::group::Errors raised"; cat "$RUNNER_TEMP/errors.txt"; echo "::endgroup::"
+          failed=0
+          if [ "$(wc -l < "$RUNNER_TEMP/errors.txt")" != "$(wc -l < "$RUNNER_TEMP/expected.txt")" ]; then
+            echo "::error::$(wc -l < "$RUNNER_TEMP/errors.txt") errors, $(wc -l < "$RUNNER_TEMP/expected.txt") expected"
+            failed=1
+          fi
+          paste -d '\n' "$RUNNER_TEMP/expected.txt" "$RUNNER_TEMP/errors.txt" | while read -r want && read -r got; do
+            case "$got" in *"$want"*) ;; *) echo "::error::expected an error containing '$want', got: $got"; exit 1 ;; esac
+          done || failed=1
+          grep -q "all OneLake checks passed" "$RUNNER_TEMP/output.txt" || { echo "::error::the script did not finish"; failed=1; }
+          exit $failed
 
       - name: Remove the test schema
         if: ${{ always() && !inputs.keep && steps.login.outcome == 'success' }}

@@ -4,11 +4,11 @@
 -- workspace root), ${LH_ID} (the lakehouse id) and ${SCHEMA} (a schema of its own per run). It runs a prelude first
 -- that loads delta and delta_classic and creates the azure secret.
 --
--- The CLI runs with -bail: the first statement that fails stops the run. An assertion is a SELECT that calls error()
--- when its condition is false. A statement that must be refused runs between .bail off and .bail on, and the
+-- The CLI runs the whole file. An assertion is a SELECT that calls error() when its condition is false. A statement
+-- that must be refused has an "-- expect-error: <text>" comment right before it, and the assertion after it checks that
+-- it left nothing behind. The workflow fails unless the errors are exactly the expected ones, in order, and the last
+-- line ran.
 -- assertion after it checks that it left nothing behind.
-
-.bail on
 
 -- ============================================================
 -- The lakehouse, by id: <db>.<schema>.<table>
@@ -61,11 +61,12 @@ SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'lh
     THEN 'ok: duckdb_tables' ELSE error('duckdb_tables: expected 4 tables in the schema') END;
 
 -- Refused: a table outside a schema, a nested schema, CREATE OR REPLACE
-.bail off
+-- expect-error: one schema per directory
 CREATE TABLE lh.main.outside (i INTEGER);
+-- expect-error: don't nest
 CREATE SCHEMA lh.${SCHEMA}.nested;
+-- expect-error: CREATE OR REPLACE
 CREATE OR REPLACE TABLE lh.${SCHEMA}.people AS SELECT 1 AS i;
-.bail on
 
 SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'lh' AND table_name = 'outside') = 0
     AND (SELECT COUNT(*) FROM duckdb_schemas() WHERE database_name = 'lh' AND schema_name = 'nested') = 0
@@ -98,10 +99,10 @@ SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_schemas()
     THEN 'ok: duckdb_schemas' ELSE error('duckdb_schemas: the schema is not under its lakehouse') END;
 
 -- Refused: a table directly in the lakehouse, a lakehouse made from DuckDB
-.bail off
+-- expect-error: Fabric lakehouse
 CREATE TABLE ws."${LH_ID}".outside (i INTEGER);
+-- expect-error: is a workspace
 CREATE SCHEMA ws.not_a_lakehouse_${SCHEMA};
-.bail on
 
 SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'ws' AND table_name = 'outside') = 0
     THEN 'ok: refused writes left nothing' ELSE error('a refused write left something behind') END;
@@ -119,10 +120,10 @@ SELECT CASE WHEN (SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'ro
 SELECT CASE WHEN (SELECT SUM(amount) FROM ro.${SCHEMA}.daily) = 71.0 THEN 'ok: daily'
     ELSE error('daily: wrong sum') END;
 
-.bail off
+-- expect-error: read-only
 INSERT INTO ro.${SCHEMA}.people VALUES (9, 'zed');
+-- expect-error: read-only
 CREATE TABLE ro.${SCHEMA}.x AS SELECT 1 AS i;
-.bail on
 
 SELECT CASE WHEN (SELECT COUNT(*) FROM ro.${SCHEMA}.people) = 3 THEN 'ok: read-only'
     ELSE error('read-only: a write went through') END;
