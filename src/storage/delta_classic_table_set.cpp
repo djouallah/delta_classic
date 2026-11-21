@@ -1,11 +1,9 @@
 #include "storage/delta_classic_table_set.hpp"
 #include "storage/delta_classic_catalog.hpp"
-#include "storage/delta_classic_path.hpp"
 #include "storage/delta_classic_schema_entry.hpp"
 #include "storage/delta_classic_table_entry.hpp"
 
 #include "duckdb/catalog/entry_lookup_info.hpp"
-#include "duckdb/common/file_system.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
@@ -36,18 +34,8 @@ void DeltaClassicTableSet::LoadEntries(ClientContext &context) {
 	if (is_loaded) {
 		return;
 	}
-	lock_guard<mutex> lock(entry_lock);
-	if (is_loaded) {
-		return;
-	}
-
-	auto &fs = FileSystem::GetFileSystem(context);
-	auto listing = DeltaClassicListDirectory(fs, schema.schema_path);
-	for (auto &table_name : listing.tables) {
-		AddEntry(table_name, DeltaClassicJoinPath(schema.schema_path, table_name));
-	}
-
-	is_loaded = true;
+	// One listing of the schema's directory finds both its tables and its nested schemas
+	schema.EnsureListed(context);
 }
 
 optional_ptr<DeltaClassicTableEntry> DeltaClassicTableSet::FindEntry(const string &name) {

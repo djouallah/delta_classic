@@ -1,5 +1,7 @@
 #include "storage/delta_classic_path.hpp"
 
+#include "duckdb/common/error_data.hpp"
+#include "duckdb/common/exception.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/common/vector.hpp"
@@ -73,6 +75,92 @@ static vector<string> SplitEntry(const string &directory, const string &entry) {
 	return result;
 }
 
+string DeltaClassicLakehouseName(const string &item_directory) {
+	const string suffix = ".Lakehouse";
+	if (item_directory.size() <= suffix.size()) {
+		return string();
+	}
+	auto stem_size = item_directory.size() - suffix.size();
+	if (item_directory.compare(stem_size, suffix.size(), suffix) != 0) {
+		return string();
+	}
+	return item_directory.substr(0, stem_size);
+}
+
+bool DeltaClassicIsOneLakeWorkspace(const string &path) {
+	auto scheme_end = path.find("://");
+	if (scheme_end == string::npos) {
+		return false;
+	}
+	auto rest = path.substr(scheme_end + 3);
+	while (!rest.empty() && IsSeparator(rest.back())) {
+		rest.pop_back();
+	}
+	auto slash = rest.find('/');
+	string host;
+	string remainder;
+	if (rest.find('@') != string::npos && (slash == string::npos || rest.find('@') < slash)) {
+		// <workspace>@onelake.dfs.fabric.microsoft.com[/<path>]
+		auto at = rest.find('@');
+		host = rest.substr(at + 1, slash == string::npos ? string::npos : slash - at - 1);
+		remainder = slash == string::npos ? string() : rest.substr(slash + 1);
+	} else {
+		// onelake.dfs.fabric.microsoft.com/<workspace>[/<path>]
+		host = rest.substr(0, slash);
+		auto container = slash == string::npos ? string() : rest.substr(slash + 1);
+		if (container.empty() || container.find('/') != string::npos) {
+			return false;
+		}
+	}
+	if (host.find("onelake.") == string::npos || host.find(".fabric.microsoft.com") == string::npos) {
+		return false;
+	}
+	return remainder.empty();
+}
+
+//! Records one object key of a recursive listing, given as path components relative to the listed directory
+static void AddRecursiveEntry(DeltaClassicListing &root, const vector<string> &parts) {
+	idx_t delta_log = parts.size();
+	for (idx_t i = 0; i < parts.size(); i++) {
+		if (parts[i] == "_delta_log") {
+			delta_log = i;
+			break;
+		}
+	}
+	if (delta_log == 0) {
+		root.is_delta_table = true;
+		return;
+	}
+	// The directories this key passes through: up to the table, or up to (not including) the file itself
+	auto directory_count = delta_log < parts.size() ? delta_log : parts.size() - 1;
+	auto node = &root;
+	for (idx_t i = 0; i < directory_count; i++) {
+		auto &child = parts[i];
+		if (IsHidden(child) || node->tables.find(child) != node->tables.end()) {
+			// Hidden, or below a table already found (its partition directories and data files)
+			return;
+		}
+		if (i + 1 == delta_log) {
+			node->tables.insert(child);
+			return;
+		}
+		node->directories.insert(child);
+		node = &node->children[child];
+		node->recursive = true;
+	}
+}
+
+//! A table's data files are listed before (or after) its _delta_log, so they also make it look like a directory
+static void DropTableDirectories(DeltaClassicListing &listing) {
+	for (auto &table : listing.tables) {
+		listing.directories.erase(table);
+		listing.children.erase(table);
+	}
+	for (auto &child : listing.children) {
+		DropTableDirectories(child.second);
+	}
+}
+
 DeltaClassicListing DeltaClassicListDirectory(FileSystem &fs, const string &path) {
 	DeltaClassicListing result;
 	fs.ListFiles(path, [&](const string &entry, bool is_directory) {
@@ -91,14 +179,7 @@ DeltaClassicListing DeltaClassicListDirectory(FileSystem &fs, const string &path
 		if (parts.size() > 1) {
 			// Recursive listing: an object key somewhere below the child
 			result.recursive = true;
-			if (parts[1] == "_delta_log") {
-				result.tables.insert(child);
-				return;
-			}
-			result.directories.insert(child);
-			if (parts.size() > 2 && parts[2] == "_delta_log" && !IsHidden(parts[1])) {
-				result.nested_tables[child].insert(parts[1]);
-			}
+			AddRecursiveEntry(result, parts);
 			return;
 		}
 		if (!is_directory) {
@@ -111,12 +192,20 @@ DeltaClassicListing DeltaClassicListDirectory(FileSystem &fs, const string &path
 			result.directories.insert(child);
 		}
 	});
-	// In a recursive listing a table's data files also make it look like a plain directory
-	for (auto &table : result.tables) {
-		result.directories.erase(table);
-		result.nested_tables.erase(table);
-	}
+	DropTableDirectories(result);
 	return result;
+}
+
+void DeltaClassicCreateDirectory(ClientContext &context, const string &path) {
+	auto &fs = FileSystem::GetFileSystem(context);
+	try {
+		fs.CreateDirectory(path);
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		if (error.Type() != ExceptionType::NOT_IMPLEMENTED) {
+			throw;
+		}
+	}
 }
 
 } // namespace duckdb

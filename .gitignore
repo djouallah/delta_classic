@@ -8,5 +8,4 @@ test/python/__pycache__/
 .Rhistory
 .vs/
 vcpkg/
-test/integration/
 .claude/settings.local.json

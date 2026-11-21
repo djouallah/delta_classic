@@ -1,0 +1,326 @@
+# name: test/sql/fabric_layout.test
+# description: Fabric layouts: a workspace is <db>.<lakehouse>.<schema>.<table>, a lakehouse <db>.<schema>.<table>
+# group: [sql]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# ============================================================
+# Lay out a workspace the way OneLake does, with the Delta extension itself:
+#   dc_ws/sales.Lakehouse/Tables/dbo/orders     a schema-enabled lakehouse
+#   dc_ws/sales.Lakehouse/Tables/legacy_t       a table outside any schema (left out)
+#   dc_ws/sales.Lakehouse/Files/raw             files, not tables (left out)
+#   dc_ws/hr.Lakehouse/Tables/dbo/people
+#   dc_ws/wh.Warehouse/Tables/dbo/t             not a lakehouse (left out)
+#   dc_ws/4e1d.../Tables/dbo/events             a lakehouse addressed by id
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/sales.Lakehouse/Tables/dbo/orders' AS orders (TYPE delta);
+
+statement ok
+CREATE TABLE orders.orders (id INTEGER, person_id INTEGER, amount DOUBLE, day DATE) PARTITIONED BY (day);
+
+statement ok
+INSERT INTO orders.orders VALUES (1, 1, 10.0, DATE '2026-01-01'), (2, 2, 20.0, DATE '2026-01-01'), (3, 1, 30.0, DATE '2026-01-02');
+
+statement ok
+DETACH orders;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/sales.Lakehouse/Tables/legacy_t' AS legacy_t (TYPE delta);
+
+statement ok
+CREATE TABLE legacy_t.legacy_t (i INTEGER);
+
+statement ok
+DETACH legacy_t;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/sales.Lakehouse/Files/raw' AS raw (TYPE delta);
+
+statement ok
+CREATE TABLE raw.raw (i INTEGER);
+
+statement ok
+DETACH raw;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/hr.Lakehouse/Tables/dbo/people' AS people (TYPE delta);
+
+statement ok
+CREATE TABLE people.people (id INTEGER, name VARCHAR);
+
+statement ok
+INSERT INTO people.people VALUES (1, 'ann'), (2, 'bob');
+
+statement ok
+DETACH people;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/wh.Warehouse/Tables/dbo/t' AS t (TYPE delta);
+
+statement ok
+CREATE TABLE t.t (i INTEGER);
+
+statement ok
+DETACH t;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/4e1d2c3b-0000-4000-8000-000000000001/Tables/dbo/events' AS events (TYPE delta);
+
+statement ok
+CREATE TABLE events.events (id INTEGER);
+
+statement ok
+INSERT INTO events.events VALUES (7);
+
+statement ok
+DETACH events;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/4e1d2c3b-0000-4000-8000-000000000001/Files/x' AS x (TYPE delta);
+
+statement ok
+CREATE TABLE x.x (i INTEGER);
+
+statement ok
+DETACH x;
+
+# ============================================================
+# The workspace, read-only: <db>.<lakehouse>.<schema>.<table>
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws' AS ws (TYPE delta_classic);
+
+query IIR
+SELECT o.day, COUNT(*), SUM(o.amount) FROM ws.sales.dbo.orders o GROUP BY ALL ORDER BY ALL;
+----
+2026-01-01	2	30.0
+2026-01-02	1	30.0
+
+# A join across lakehouses
+query TR
+SELECT p.name, SUM(o.amount) FROM ws.sales.dbo.orders o JOIN ws.hr.dbo.people p ON o.person_id = p.id GROUP BY ALL ORDER BY ALL;
+----
+ann	40.0
+bob	20.0
+
+query II rowsort
+SELECT schema_name, parent_schema FROM duckdb_schemas() WHERE database_name = 'ws' AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog');
+----
+dbo	hr
+dbo	sales
+hr	NULL
+sales	NULL
+
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'ws';
+----
+dbo	orders
+dbo	people
+
+# Not lakehouses, or not in a schema
+statement error
+SELECT * FROM ws.wh.dbo.t;
+----
+<REGEX>:.*(wh|not found|does not exist).*
+
+statement error
+SELECT * FROM ws.sales.legacy_t;
+----
+<REGEX>:.*(legacy_t|not found|does not exist).*
+
+# A lakehouse addressed by its id is found when looked up
+query I
+SELECT id FROM ws."4e1d2c3b-0000-4000-8000-000000000001".dbo.events;
+----
+7
+
+statement ok
+USE ws.hr.dbo;
+
+query T
+SELECT name FROM people ORDER BY id;
+----
+ann
+bob
+
+statement ok
+USE memory;
+
+statement error
+CREATE SCHEMA ws.sales.staging;
+----
+read-only
+
+statement ok
+DETACH ws;
+
+# ============================================================
+# The workspace, writable
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws' AS ws (TYPE delta_classic, READ_ONLY false);
+
+statement ok
+CREATE SCHEMA ws.sales.staging;
+
+statement ok
+CREATE SCHEMA IF NOT EXISTS ws.sales.dbo;
+
+statement ok
+CREATE TABLE ws.sales.staging.big_orders AS SELECT * FROM ws.sales.dbo.orders WHERE amount > 15;
+
+statement ok
+CREATE TABLE ws.sales.staging.by_person PARTITIONED BY (name) AS
+SELECT p.name, COUNT(*)::BIGINT AS n, SUM(o.amount) AS total
+FROM ws.sales.dbo.orders o JOIN ws.hr.dbo.people p ON o.person_id = p.id GROUP BY p.name;
+
+statement ok
+INSERT INTO ws.sales.dbo.orders VALUES (4, 2, 40.0, DATE '2026-01-03');
+
+statement ok
+INSERT INTO ws.hr.dbo.people SELECT id + 10, name || '2' FROM ws.hr.dbo.people;
+
+statement ok
+CREATE TABLE ws.hr.dbo.teams (team VARCHAR, person_id INTEGER);
+
+statement ok
+INSERT INTO ws.hr.dbo.teams VALUES ('red', 1), ('blue', 2), ('blue', 12);
+
+# USE a lakehouse schema, then write unqualified
+statement ok
+USE ws.sales.staging;
+
+statement ok
+CREATE TABLE totals AS SELECT SUM(total) AS total FROM by_person;
+
+statement ok
+INSERT INTO totals SELECT SUM(amount) FROM big_orders;
+
+query R
+SELECT SUM(total) FROM totals;
+----
+110.0
+
+statement ok
+USE memory;
+
+# A lakehouse's tables go in its schemas, its schemas don't nest, and lakehouses are made in Fabric
+statement error
+CREATE TABLE ws.sales.t (i INTEGER);
+----
+Fabric lakehouse
+
+statement error
+CREATE TABLE ws.sales.t AS SELECT 1 AS i;
+----
+Fabric lakehouse
+
+statement error
+CREATE SCHEMA ws.sales.dbo.sub;
+----
+don't nest
+
+statement error
+CREATE SCHEMA ws.marketing;
+----
+workspace
+
+statement error
+CREATE SCHEMA ws.sales.dbo;
+----
+already exists
+
+query II
+SELECT (SELECT COUNT(*) FROM ws.sales.dbo.orders), (SELECT COUNT(*) FROM ws.hr.dbo.people);
+----
+4	4
+
+query I
+SELECT COUNT(*) FROM ws.sales.dbo.orders AT (VERSION => 1);
+----
+3
+
+statement ok
+DETACH ws;
+
+# ============================================================
+# A lakehouse on its own: <db>.<schema>.<table>
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/sales.Lakehouse' AS lh (TYPE delta_classic, READ_ONLY false);
+
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'lh';
+----
+dbo	orders
+staging	big_orders
+staging	by_person
+staging	totals
+
+query TIR
+SELECT name, n, total FROM lh.staging.by_person ORDER BY name;
+----
+ann	2	40.0
+bob	1	20.0
+
+statement ok
+CREATE SCHEMA lh.gold;
+
+statement ok
+CREATE TABLE lh.gold.daily AS SELECT day, SUM(amount) AS amount FROM lh.dbo.orders GROUP BY day;
+
+statement error
+CREATE TABLE lh.main.x (i INTEGER);
+----
+one schema per directory
+
+statement ok
+DETACH lh;
+
+# The new schema is in the workspace too
+statement ok
+ATTACH '__TEST_DIR__/dc_ws' AS ws (TYPE delta_classic);
+
+query IR
+SELECT COUNT(*), SUM(amount) FROM ws.sales.gold.daily;
+----
+3	100.0
+
+query II rowsort
+SELECT schema_name, parent_schema FROM duckdb_schemas() WHERE database_name = 'ws' AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog');
+----
+dbo	hr
+dbo	sales
+gold	sales
+hr	NULL
+sales	NULL
+staging	sales
+
+statement ok
+DETACH ws;
+
+# A lakehouse addressed by its id: a directory holding Tables and Files
+statement ok
+ATTACH '__TEST_DIR__/dc_ws/4e1d2c3b-0000-4000-8000-000000000001' AS byid (TYPE delta_classic);
+
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'byid';
+----
+dbo	events
+
+statement ok
+DETACH byid;

@@ -115,12 +115,78 @@ SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'w' AND table_name = 
 statement ok
 CREATE TABLE w.main.bad (i INTEGER);
 
-# Writes the Delta extension can't do
+# CREATE TABLE AS SELECT writes the table and its rows as version 0
+statement ok
+CREATE TABLE w.main.ctas AS SELECT range::INTEGER AS i, 'v' || range AS s FROM range(5);
+
+query II
+SELECT COUNT(*), SUM(i) FROM w.main.ctas;
+----
+5	10
+
+query I
+SELECT COUNT(*) FROM w.main.ctas AT (VERSION => 0);
+----
+5
+
+statement ok
+INSERT INTO w.main.ctas SELECT i + 5, s FROM w.main.ctas;
+
+query II
+SELECT COUNT(*), SUM(i) FROM w.main.ctas;
+----
+10	45
+
+# IF NOT EXISTS on an existing table skips the query
+statement ok
+CREATE TABLE IF NOT EXISTS w.main.ctas AS SELECT 1 / 0 AS boom;
+
+query I
+SELECT COUNT(*) FROM w.main.ctas;
+----
+10
+
 statement error
 CREATE TABLE w.main.ctas AS SELECT 1 AS i;
 ----
-CREATE TABLE AS SELECT
+already exists
 
+statement error
+CREATE OR REPLACE TABLE w.main.ctas AS SELECT 1 AS i;
+----
+OR REPLACE
+
+# Partitioned, from a join of two tables
+statement ok
+CREATE TABLE w.main.ctas_part PARTITIONED BY (s) AS SELECT t.id, c.s FROM w.main.t t JOIN w.main.ctas c ON t.id = c.i;
+
+query II
+SELECT id, s FROM w.main.ctas_part ORDER BY id;
+----
+1	v1
+2	v2
+
+# An empty result creates an empty table
+statement ok
+CREATE TABLE w.main.ctas_empty AS SELECT * FROM w.main.t WHERE id < 0;
+
+query I
+SELECT COUNT(*) FROM w.main.ctas_empty;
+----
+0
+
+# A CREATE TABLE AS the Delta extension rejects leaves no table behind
+statement error
+CREATE TABLE w.main.ctas_bad AS SELECT 1::HUGEINT AS h;
+----
+<REGEX>:.*(HUGEINT|cast|Cast).*
+
+query I
+SELECT COUNT(*) FROM duckdb_tables() WHERE database_name = 'w' AND table_name = 'ctas_bad';
+----
+0
+
+# Writes the Delta extension can't do
 statement error
 UPDATE w.main.t SET s = 'x';
 ----
@@ -188,6 +254,9 @@ query I rowsort
 SELECT table_name FROM duckdb_tables() WHERE database_name = 'w';
 ----
 bad
+ctas
+ctas_empty
+ctas_part
 t
 
 statement error

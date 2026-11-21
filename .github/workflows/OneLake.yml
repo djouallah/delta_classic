@@ -1,0 +1,99 @@
+name: OneLake Integration Test (v2.0)
+
+# delta_classic against a real Fabric lakehouse: test/onelake/onelake.sql, in SQL, with the DuckDB CLI and the
+# linux_amd64 build of the distribution pipeline. It writes into a schema of its own (dc_ci_<run id>_<attempt>) and
+# removes it afterwards.
+#
+# OIDC only, no client secret: azure/login exchanges the GitHub token for an Entra token. Setup, once:
+#   - a federated credential on the app registration for repo:djouallah/delta_classic:ref:refs/heads/main
+#   - repo secrets AZURE_CLIENT_ID, AZURE_TENANT_ID, FABRIC_WORKSPACE_ID and FABRIC_LAKEHOUSE_ID (a lakehouse with
+#     schemas), and the app a Contributor of that workspace
+
+on:
+  workflow_run:
+    workflows: ["Main Extension Distribution Pipeline"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: Leave the test schema in the lakehouse, to look at it in Fabric.
+        type: boolean
+        default: false
+
+# One lakehouse: queue, never cancel a run halfway through its writes
+concurrency:
+  group: onelake
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+jobs:
+  onelake:
+    name: OneLake
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DUCKDB_VERSION: v2.0.1
+      FABRIC_WORKSPACE_ID: ${{ secrets.FABRIC_WORKSPACE_ID }}
+      FABRIC_LAKEHOUSE_ID: ${{ secrets.FABRIC_LAKEHOUSE_ID }}
+      SCHEMA: dc_ci_${{ github.run_id }}_${{ github.run_attempt }}
+      # The azure extension's default transport fails the OneLake TLS handshake on Linux runners; curl works
+      CURL_CA_INFO: /etc/ssl/certs/ca-certificates.crt
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the extension
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: delta_classic-${{ env.DUCKDB_VERSION }}-extension-linux_amd64
+          # The run that triggered this one, or (dispatched) the latest successful build of main
+          run_id: ${{ github.event.workflow_run.id }}
+          workflow: MainDistributionPipeline.yml
+          workflow_conclusion: success
+          branch: main
+          path: ./artifact
+
+      - name: Install the DuckDB CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/duckdb"
+          curl -sSfL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/duckdb-cli-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/duckdb"
+          ls -l "$RUNNER_TEMP/duckdb"
+          "$RUNNER_TEMP/duckdb/duckdb" -c "INSTALL delta; INSTALL azure; SELECT version();"
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Run test/onelake/onelake.sql
+        run: |
+          TOKEN=$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)
+          echo "::add-mask::$TOKEN"
+          cat > "$RUNNER_TEMP/prelude.sql" <<EOF
+          SET azure_transport_option_type = 'curl';
+          CREATE SECRET onelake (TYPE azure, PROVIDER access_token, ACCESS_TOKEN '$TOKEN');
+          LOAD delta;
+          LOAD './artifact/delta_classic.duckdb_extension';
+          EOF
+          export WS="abfss://${FABRIC_WORKSPACE_ID}@onelake.dfs.fabric.microsoft.com/"
+          export LH="abfss://${FABRIC_WORKSPACE_ID}@onelake.dfs.fabric.microsoft.com/${FABRIC_LAKEHOUSE_ID}"
+          export LH_ID="${FABRIC_LAKEHOUSE_ID}"
+          export SCHEMA
+          envsubst '${WS} ${LH} ${LH_ID} ${SCHEMA}' < test/onelake/onelake.sql > "$RUNNER_TEMP/onelake.sql"
+          "$RUNNER_TEMP/duckdb/duckdb" -unsigned -bail -init "$RUNNER_TEMP/prelude.sql" -echo -f "$RUNNER_TEMP/onelake.sql"
+
+      - name: Remove the test schema
+        if: ${{ always() && !inputs.keep }}
+        run: |
+          TOKEN=$(az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv)
+          echo "::add-mask::$TOKEN"
+          curl -sS -X DELETE -o /dev/null -w "DELETE Tables/${SCHEMA}: HTTP %{http_code}\n" \
+            -H "Authorization: Bearer $TOKEN" -H "x-ms-version: 2023-11-03" \
+            "https://onelake.dfs.fabric.microsoft.com/${FABRIC_WORKSPACE_ID}/${FABRIC_LAKEHOUSE_ID}/Tables/${SCHEMA}?recursive=true" || true

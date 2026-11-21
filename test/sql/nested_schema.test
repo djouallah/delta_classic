@@ -1,0 +1,404 @@
+# name: test/sql/nested_schema.test
+# description: Nested schemas: one per directory, at any depth, created with CREATE SCHEMA and written with CREATE TABLE (AS) and INSERT
+# group: [sql]
+
+require delta_classic
+
+statement ok
+INSTALL parquet;
+
+statement ok
+INSTALL delta;
+
+statement ok
+LOAD delta;
+
+# ============================================================
+# CREATE SCHEMA needs READ_ONLY false
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_nested' AS ro (TYPE delta_classic);
+
+statement error
+CREATE SCHEMA ro.sales;
+----
+read-only
+
+statement ok
+DETACH ro;
+
+# ============================================================
+# Build a tree: sales, sales.eu, sales.eu.fr, sales.us, hr
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_nested' AS w (TYPE delta_classic, READ_ONLY false);
+
+statement ok
+CREATE SCHEMA w.sales;
+
+statement ok
+CREATE SCHEMA w.sales.eu;
+
+statement ok
+CREATE SCHEMA w.sales.eu.fr;
+
+statement ok
+CREATE SCHEMA IF NOT EXISTS w.sales.us;
+
+statement ok
+CREATE SCHEMA w.hr;
+
+# IF NOT EXISTS on existing schemas, at the top and nested
+statement ok
+CREATE SCHEMA IF NOT EXISTS w.sales;
+
+statement ok
+CREATE SCHEMA IF NOT EXISTS w.sales.eu;
+
+statement error
+CREATE SCHEMA w.sales.eu;
+----
+already exists
+
+statement error
+CREATE OR REPLACE SCHEMA w.sales;
+----
+OR REPLACE
+
+# The parent has to exist
+statement error
+CREATE SCHEMA w.nope.child;
+----
+<REGEX>:.*(nope|not found|does not exist).*
+
+# main holds nothing once the database has schemas
+statement error
+CREATE TABLE w.main.x (i INTEGER);
+----
+one schema per directory
+
+statement error
+CREATE SCHEMA w.main.x;
+----
+can't hold schemas
+
+# duckdb_schemas() names each schema and its parent
+query II rowsort
+SELECT schema_name, parent_schema FROM duckdb_schemas() WHERE database_name = 'w' AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog');
+----
+eu	sales
+fr	eu
+hr	NULL
+sales	NULL
+us	sales
+
+# ============================================================
+# Tables at every depth, written in combinations
+# ============================================================
+
+statement ok
+CREATE TABLE w.sales.eu.orders (id INTEGER, amount DOUBLE, country VARCHAR) PARTITIONED BY (country);
+
+statement ok
+INSERT INTO w.sales.eu.orders VALUES (1, 10.0, 'fr'), (2, 20.0, 'de'), (3, 30.0, 'fr');
+
+statement ok
+CREATE TABLE w.sales.us.orders AS SELECT (range + 100)::INTEGER AS id, (range * 1.5)::DOUBLE AS amount, 'us' AS country FROM range(4);
+
+# A schema holds both tables and nested schemas
+statement ok
+CREATE TABLE w.sales.targets (region VARCHAR, target DOUBLE);
+
+statement ok
+INSERT INTO w.sales.targets VALUES ('eu', 50.0), ('us', 5.0);
+
+statement ok
+CREATE TABLE w.sales.eu.fr.stores AS SELECT range::INTEGER AS store_id, 'Paris ' || range AS city FROM range(3);
+
+statement ok
+CREATE TABLE w.hr.people (id INTEGER, name VARCHAR);
+
+statement ok
+INSERT INTO w.hr.people SELECT range::INTEGER, 'p' || range FROM range(10);
+
+# Same table name in sibling schemas
+query II
+SELECT (SELECT COUNT(*) FROM w.sales.eu.orders), (SELECT COUNT(*) FROM w.sales.us.orders);
+----
+3	4
+
+# CREATE TABLE AS from a union and join across nested schemas
+statement ok
+CREATE TABLE w.sales.all_orders PARTITIONED BY (region) AS
+SELECT o.id, o.amount, 'eu' AS region FROM w.sales.eu.orders o
+UNION ALL
+SELECT o.id, o.amount, 'us' AS region FROM w.sales.us.orders o;
+
+query IIR
+SELECT a.region, COUNT(*), SUM(a.amount) - ANY_VALUE(t.target)
+FROM w.sales.all_orders a JOIN w.sales.targets t ON a.region = t.region
+GROUP BY a.region ORDER BY a.region;
+----
+eu	3	10.0
+us	4	4.0
+
+# INSERT ... SELECT between nested schemas
+statement ok
+INSERT INTO w.sales.eu.orders SELECT id + 1000, amount, 'es' FROM w.sales.us.orders WHERE id < 102;
+
+query II
+SELECT country, COUNT(*) FROM w.sales.eu.orders GROUP BY country ORDER BY country;
+----
+de	1
+es	2
+fr	2
+
+# Time travel on a nested table: version 0 is the empty table, 1 the first INSERT
+query I
+SELECT COUNT(*) FROM w.sales.eu.orders AT (VERSION => 0);
+----
+0
+
+query I
+SELECT COUNT(*) FROM w.sales.eu.orders AT (VERSION => 1);
+----
+3
+
+query I
+SELECT COUNT(*) FROM w.sales.eu.orders;
+----
+5
+
+# One transaction writes two tables in different schemas
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO w.hr.people VALUES (100, 'x');
+
+statement ok
+INSERT INTO w.sales.eu.fr.stores VALUES (100, 'Lyon');
+
+statement ok
+COMMIT;
+
+query II
+SELECT (SELECT COUNT(*) FROM w.hr.people), (SELECT COUNT(*) FROM w.sales.eu.fr.stores);
+----
+11	4
+
+# A rolled back INSERT is discarded, the CREATE TABLE AS before it is not
+statement ok
+BEGIN;
+
+statement ok
+CREATE TABLE w.hr.temp AS SELECT 1 AS i;
+
+statement ok
+ROLLBACK;
+
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO w.hr.people VALUES (200, 'y');
+
+statement ok
+ROLLBACK;
+
+query I
+SELECT COUNT(*) FROM w.hr.people;
+----
+11
+
+# ============================================================
+# USE a nested schema
+# ============================================================
+
+statement ok
+USE w.sales.eu;
+
+query I
+SELECT COUNT(*) FROM orders;
+----
+5
+
+statement ok
+CREATE TABLE returns AS SELECT id, amount FROM orders WHERE country = 'fr';
+
+statement ok
+INSERT INTO returns VALUES (9, 9.0);
+
+query I
+SELECT COUNT(*) FROM w.sales.eu.returns;
+----
+3
+
+query I
+SELECT name FROM (SHOW TABLES) ORDER BY ALL;
+----
+orders
+returns
+
+statement ok
+USE memory;
+
+# ============================================================
+# Metadata
+# ============================================================
+
+# duckdb_tables() names the innermost schema
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'w';
+----
+eu	orders
+eu	returns
+fr	stores
+hr	people
+hr	temp
+sales	all_orders
+sales	targets
+us	orders
+
+# Writes that aren't supported
+statement error
+DROP SCHEMA w.sales.us;
+----
+not support
+
+statement error
+DROP TABLE w.sales.eu.orders;
+----
+not support
+
+statement error
+UPDATE w.sales.eu.orders SET amount = 0;
+----
+<REGEX>:.*(not support|base table).*
+
+statement error
+DELETE FROM w.sales.eu.orders;
+----
+<REGEX>:.*(not support|base table).*
+
+statement ok
+DETACH w;
+
+# ============================================================
+# Attached again (read-only), the directories are the schemas
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_nested' AS r (TYPE delta_classic);
+
+# duckdb_schemas() names each schema and its parent
+query II rowsort
+SELECT schema_name, parent_schema FROM duckdb_schemas() WHERE database_name = 'r' AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog');
+----
+eu	sales
+fr	eu
+hr	NULL
+sales	NULL
+us	sales
+
+# duckdb_tables() names the innermost schema
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 'r';
+----
+eu	orders
+eu	returns
+fr	stores
+hr	people
+hr	temp
+sales	all_orders
+sales	targets
+us	orders
+
+query IR
+SELECT COUNT(*), SUM(amount) FROM r.sales.all_orders;
+----
+7	69.0
+
+query I
+SELECT COUNT(*) FROM r.sales.eu.orders AT (VERSION => 1);
+----
+3
+
+query I
+SELECT string_agg(city, ',' ORDER BY store_id) FROM r.sales.eu.fr.stores;
+----
+Paris 0,Paris 1,Paris 2,Lyon
+
+statement error
+INSERT INTO r.hr.people VALUES (1, 'z');
+----
+read-only
+
+statement error
+CREATE SCHEMA r.sales.asia;
+----
+read-only
+
+statement error
+CREATE TABLE r.sales.eu.x AS SELECT 1 AS i;
+----
+read-only
+
+statement ok
+DETACH r;
+
+# ============================================================
+# Nested schemas below main, in a single-schema directory
+# ============================================================
+
+statement ok
+ATTACH '__TEST_DIR__/dc_nested_single' AS s (TYPE delta_classic, READ_ONLY false);
+
+statement ok
+CREATE TABLE s.main.top AS SELECT 1 AS i;
+
+# The tables are in main now, so a top-level schema would be read back as a schema nested in main
+statement error
+CREATE SCHEMA s.archive;
+----
+holds its tables in main
+
+statement ok
+CREATE SCHEMA s.main.archive;
+
+statement ok
+CREATE TABLE s.main.archive.old AS SELECT 2 AS i;
+
+statement ok
+DETACH s;
+
+statement ok
+ATTACH '__TEST_DIR__/dc_nested_single' AS s (TYPE delta_classic);
+
+query II rowsort
+SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = 's';
+----
+archive	old
+main	top
+
+query II
+SELECT (SELECT i FROM s.main.top), (SELECT i FROM s.main.archive.old);
+----
+1	2
+
+statement ok
+DETACH s;
+
+# An empty database takes its first schema at the top level only
+statement ok
+ATTACH '__TEST_DIR__/dc_nested_empty' AS e (TYPE delta_classic, READ_ONLY false);
+
+statement error
+CREATE SCHEMA e.main.x;
+----
+top level
+
+statement ok
+DETACH e;

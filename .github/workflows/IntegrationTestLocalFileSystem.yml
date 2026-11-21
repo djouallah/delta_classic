@@ -21,7 +21,7 @@ jobs:
       - name: Download extension artifact
         uses: dawidd6/action-download-artifact@v6
         with:
-          name: delta_classic-v2.0.0-extension-linux_amd64
+          name: delta_classic-v2.0.1-extension-linux_amd64
           run_id: ${{ github.event.workflow_run.id }}
           path: ./artifact
           search_artifacts: true
@@ -31,12 +31,12 @@ jobs:
         if: ${{ hashFiles('artifact/delta_classic.duckdb_extension') == '' }}
         uses: dawidd6/action-download-artifact@v6
         with:
-          name: delta_classic-v2.0.0-extension-linux_amd64
+          name: delta_classic-v2.0.1-extension-linux_amd64
           workflow: MainDistributionPipeline.yml
           path: ./artifact
           search_artifacts: true
 
-      - run: pip install duckdb==2.0.0 pytest deltalake pyarrow
+      - run: pip install duckdb==2.0.1 pytest deltalake pyarrow
 
       - run: pytest test/python/ -v -s
         env:
