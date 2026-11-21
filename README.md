@@ -1,29 +1,18 @@
 # Delta Classic - DuckDB Extension
 
-A minimal DuckDB extension that lets you attach a **directory of Delta tables** as a single database. Works with any filesystem DuckDB supports: local, S3, ABFSS, GCS.
+A minimal DuckDB extension that lets you attach a **directory of Delta tables** as a single database. Works with any filesystem DuckDB supports: local, S3 (and S3-compatible stores like MinIO), GCS, Azure (ABFSS) and OneLake.
 
 ## Installation
 
-Requires DuckDB v2.0.1. Fabric notebook uses an old version, so you need to upgrade
+Requires DuckDB v2.0.1.
 
-```python
-!pip install duckdb --upgrade
-notebookutils.session.restartPython()
+```sql
+INSTALL delta_classic FROM community;
+LOAD delta_classic;
+
+ATTACH '/data/lake' AS lake (TYPE delta_classic);
+SELECT * FROM lake.sales.orders;
 ```
-
-
-```python
-import duckdb
-
-conn = duckdb.connect()
-conn.sql("install delta_classic FROM community ")
-conn.sql(f"""
-    ATTACH 'abfss://{ws}@onelake.dfs.fabric.microsoft.com/' AS ws (TYPE delta_classic, PIN_SNAPSHOT);
-""")
-conn.sql(f"SELECT * FROM ws.{lh}.dbo.sales").show()
-```
-
-A whole OneLake workspace is one database: `<workspace>.<lakehouse>.<schema>.<table>`.
 
 ## The Problem
 
@@ -42,37 +31,44 @@ This extension does the absolute minimum:
 
 1. Lists subdirectories at the given path
 2. Checks which ones have a `_delta_log` folder (i.e., are actual Delta tables)
-3. Internally calls `ATTACH ... (TYPE DELTA, PIN_SNAPSHOT)` for each table when you first query it
+3. Internally calls `ATTACH ... (TYPE DELTA)` for each table when you first query it
 4. Exposes them all through a single virtual catalog
 
 There is zero reimplementation of Delta reading — everything delegates to the existing [Delta extension](https://github.com/duckdb/duckdb-delta).
 
 ## Schema Discovery
 
-The extension auto-detects the directory structure:
+The extension auto-detects the directory structure. The same rules apply on every filesystem:
+
+```sql
+ATTACH '/data/lake'       AS db (TYPE delta_classic);   -- local
+ATTACH 's3://bucket/lake' AS db (TYPE delta_classic);   -- S3, MinIO
+ATTACH 'gs://bucket/lake' AS db (TYPE delta_classic);   -- GCS
+ATTACH 'abfss://container@account.dfs.core.windows.net/lake' AS db (TYPE delta_classic);   -- Azure
+```
 
 **Multi-schema** — when the path contains subdirectories of tables:
 ```
-Tables/
-├── CH0030/           → schema "CH0030"
+lake/
+├── sales/            → schema "sales"
 │   ├── orders/       → table (has _delta_log)
 │   └── customers/    → table (has _delta_log)
-└── CH0060/           → schema "CH0060"
-    └── orders/       → table
+└── hr/               → schema "hr"
+    └── people/       → table
 ```
 ```sql
-ATTACH '.../Tables' AS db (TYPE delta_classic);
-SELECT * FROM db.CH0030.orders;
+ATTACH '/data/lake' AS db (TYPE delta_classic);
+SELECT * FROM db.sales.orders;
 ```
 
 **Single-schema** — when the path directly contains Delta tables:
 ```
-CH0030/
+sales/
 ├── orders/_delta_log/
 └── customers/_delta_log/
 ```
 ```sql
-ATTACH '.../CH0030' AS db (TYPE delta_classic);
+ATTACH '/data/lake/sales' AS db (TYPE delta_classic);
 SELECT * FROM db.main.orders;
 ```
 
@@ -85,41 +81,18 @@ lake/
         └── orders/   → table sales.eu.orders
 ```
 ```sql
-ATTACH '.../lake' AS db (TYPE delta_classic);
+ATTACH '/data/lake' AS db (TYPE delta_classic);
 SELECT * FROM db.sales.eu.orders;
 USE db.sales.eu;
 ```
 
-**Fabric workspace** — a OneLake workspace root, or any directory of `<name>.Lakehouse` items. Each lakehouse is a schema holding the schemas in its `Tables` directory:
-```
-<workspace>/
-├── sales.Lakehouse/Tables/dbo/orders   → ws.sales.dbo.orders
-├── hr.Lakehouse/Tables/dbo/people      → ws.hr.dbo.people
-└── wh.Warehouse/...                    → left out (not a lakehouse)
-```
-```sql
-ATTACH 'abfss://<workspace>@onelake.dfs.fabric.microsoft.com/' AS ws (TYPE delta_classic);
-SELECT * FROM ws.sales.dbo.orders o JOIN ws.hr.dbo.people p ON o.person_id = p.id;
-SELECT * FROM ws."<lakehouse id>".dbo.orders;   -- by id works too
-```
-A lakehouse is found by name (`<name>.Lakehouse`) or by id the first time it is looked up. Listing a OneLake workspace fails with the Azure SDK the azure extension uses today ([duckdb-azure#226](https://github.com/duckdb/duckdb-azure/issues/226)), so until that is fixed `duckdb_schemas()` shows only the lakehouses already looked up.
-
-**Fabric lakehouse** — a `<name>.Lakehouse` directory, or a directory holding `Tables` and `Files` (a lakehouse addressed by id):
-```sql
-ATTACH 'abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>' AS lh (TYPE delta_classic);
-SELECT * FROM lh.dbo.orders;
-```
-Only lakehouses with schemas are supported: tables directly in `Tables` are left out.
-
 **Single table** — when the path is itself a Delta table:
 ```sql
-ATTACH '.../CH0030/orders' AS db (TYPE delta_classic);
+ATTACH '/data/lake/sales/orders' AS db (TYPE delta_classic);
 SELECT * FROM db.main.orders;
 ```
 
-Directories starting with `.` or `_` are skipped.
-
-Works with any path DuckDB supports: local, S3 (including S3-compatible stores like MinIO), ABFSS, GCS.
+Directories starting with `.` or `_` are skipped, and nothing below a table (its partition directories) is ever a schema.
 
 ## Options
 
@@ -138,8 +111,8 @@ All options are passed to the Delta extension for each table. `VERSION` is not s
 ## Time Travel
 
 ```sql
-SELECT * FROM db.main.orders AT (VERSION => 42);
-SELECT * FROM db.main.orders AT (TIMESTAMP => TIMESTAMPTZ '2026-10-01 00:00:00+00');
+SELECT * FROM db.sales.orders AT (VERSION => 42);
+SELECT * FROM db.sales.orders AT (TIMESTAMP => TIMESTAMPTZ '2026-10-01 00:00:00+00');
 ```
 
 `AT` overrides an attached `TIMESTAMP`.
@@ -149,21 +122,22 @@ SELECT * FROM db.main.orders AT (TIMESTAMP => TIMESTAMPTZ '2026-10-01 00:00:00+0
 Databases are read-only unless attached with `READ_ONLY false`. `CREATE SCHEMA`, `CREATE TABLE`, `CREATE TABLE AS SELECT` and `INSERT` then work, and the Delta extension writes the tables:
 
 ```sql
-ATTACH 'abfss://<workspace>@onelake.dfs.fabric.microsoft.com/' AS ws (TYPE delta_classic, READ_ONLY false);
+ATTACH '/data/lake' AS db (TYPE delta_classic, READ_ONLY false);
 
-CREATE SCHEMA ws.sales.staging;
-CREATE TABLE ws.sales.staging.returns (id INTEGER, region VARCHAR) PARTITIONED BY (region);
-INSERT INTO ws.sales.staging.returns VALUES (1, 'eu'), (2, 'us');
-CREATE TABLE ws.sales.staging.by_region PARTITIONED BY (region) AS
-    SELECT region, COUNT(*) AS n FROM ws.sales.staging.returns GROUP BY region;
+CREATE SCHEMA db.sales;                                   -- lake/sales
+CREATE SCHEMA db.sales.eu;                                -- lake/sales/eu
+CREATE TABLE db.sales.returns (id INTEGER, region VARCHAR) PARTITIONED BY (region);   -- lake/sales/returns
+INSERT INTO db.sales.returns VALUES (1, 'eu'), (2, 'us');
+CREATE TABLE db.sales.eu.by_region AS                     -- lake/sales/eu/by_region
+    SELECT region, COUNT(*) AS n FROM db.sales.returns GROUP BY region;
 ```
 
-- `CREATE TABLE` writes a new Delta table in the schema's directory (`<path>/sales/returns`). It takes `PARTITIONED BY`, Delta table properties in `WITH ('delta.enableDeletionVectors' = 'true')` and `IF NOT EXISTS`, like the Delta extension. `CREATE TABLE AS SELECT` takes the same options, and commits the table with its rows as version 0.
-- `CREATE SCHEMA` creates the schema's directory, nested schemas included (`CREATE SCHEMA db.sales.eu`). In a lakehouse it creates `Tables/<schema>`. Lakehouse schemas don't nest, and lakehouses are created in Fabric. S3 and GCS have no directories, so an empty schema there lasts only until DETACH: create a table in it to keep it.
-- In a directory with one schema per subdirectory, and in a lakehouse, tables go in a schema: a table directly in the attached directory would turn it into a single schema. A path that is itself a Delta table can't hold new tables or schemas.
+- `CREATE TABLE` writes a new Delta table in the schema's directory. It takes `PARTITIONED BY`, Delta table properties in `WITH ('delta.enableDeletionVectors' = 'true')` and `IF NOT EXISTS`, like the Delta extension. `CREATE TABLE AS SELECT` takes the same options, and commits the table with its rows as version 0.
+- `CREATE SCHEMA` creates the schema's directory, nested schemas included. S3 and GCS have no directories, so an empty schema there lasts only until DETACH: create a table in it to keep it.
+- In a new directory, the first `CREATE` decides the layout: a table makes it a single schema (`main`), a schema makes it a multi-schema database. In a multi-schema database, tables go in a schema. A path that is itself a Delta table can't hold new tables or schemas.
 - `TIMESTAMP` and `PIN_SNAPSHOT` can't be combined with `READ_ONLY false`.
 - Not supported, as in the Delta extension: `CREATE OR REPLACE`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `DROP SCHEMA`, `ALTER`, `RETURNING`, `ON CONFLICT`.
-- Concurrent writers to one table, from any process or machine, race for its next Delta version: one wins, the others fail with a commit conflict and leave nothing behind, so retry them.
+- Concurrent writers to one table, from any process or machine, race for its next Delta version: one wins, the others fail with an error and leave nothing behind, so retry them.
 - Each table commits on its own: a transaction that writes several tables is not atomic across them. `CREATE TABLE`, `CREATE TABLE AS SELECT` and `CREATE SCHEMA` are committed immediately, and `ROLLBACK` doesn't undo them. A table written in a transaction can't be read again in that transaction.
 
 ## Limitations
@@ -171,6 +145,47 @@ CREATE TABLE ws.sales.staging.by_region PARTITIONED BY (region) AS
 - Not available in DuckDB-WASM, because the Delta extension has no WASM build.
 - Tables and schemas are listed once, on first use. Attach again to see new ones.
 - `duckdb_columns()` and `information_schema.columns` only show the columns of tables already queried in the current transaction (listing every column would read every Delta log). `DESCRIBE` always works.
+
+## Microsoft Fabric / OneLake
+
+OneLake is just another filesystem, but delta_classic also knows Fabric's layout, so a whole workspace attaches as one database: `<workspace>.<lakehouse>.<schema>.<table>`.
+
+```
+<workspace>/
+├── sales.Lakehouse/Tables/dbo/orders   → ws.sales.dbo.orders
+├── sales.Lakehouse/Tables/gold/daily   → ws.sales.gold.daily
+├── hr.Lakehouse/Tables/dbo/people      → ws.hr.dbo.people
+└── wh.Warehouse/...                    → left out (not a lakehouse)
+```
+```sql
+CREATE SECRET (TYPE azure, PROVIDER credential_chain, CHAIN 'cli', ACCOUNT_NAME 'onelake');
+
+-- A workspace: each lakehouse is a schema, holding its own schemas
+ATTACH 'abfss://<workspace>@onelake.dfs.fabric.microsoft.com/' AS ws (TYPE delta_classic);
+SELECT * FROM ws.sales.dbo.orders o JOIN ws.hr.dbo.people p ON o.person_id = p.id;
+SELECT * FROM ws."<lakehouse id>".dbo.orders;   -- by id works too
+
+-- A lakehouse on its own: <db>.<schema>.<table>
+ATTACH 'abfss://<workspace>@onelake.dfs.fabric.microsoft.com/sales.Lakehouse' AS lh (TYPE delta_classic);
+SELECT * FROM lh.dbo.orders;
+```
+
+Writing works as anywhere else, into lakehouses that exist in Fabric:
+
+```sql
+ATTACH 'abfss://<workspace>@onelake.dfs.fabric.microsoft.com/sales.Lakehouse' AS lh (TYPE delta_classic, READ_ONLY false);
+
+CREATE SCHEMA lh.staging;                  -- Tables/staging
+CREATE TABLE lh.staging.daily AS           -- Tables/staging/daily
+    SELECT day, SUM(amount) AS amount FROM lh.dbo.orders GROUP BY day;
+```
+
+- A lakehouse is a `<name>.Lakehouse` directory, or a directory holding `Tables` and `Files` (a lakehouse addressed by id: `abfss://<workspace id>@onelake.dfs.fabric.microsoft.com/<lakehouse id>`).
+- Only lakehouses with schemas are supported: tables directly in `Tables` are left out. Lakehouse schemas don't nest.
+- Lakehouses can't be created from DuckDB: create them in Fabric. `CREATE SCHEMA` creates a schema inside a lakehouse.
+- In a workspace, a lakehouse is found by name or id the first time it is looked up. Listing a OneLake workspace fails with the Azure SDK the azure extension uses today ([duckdb-azure#226](https://github.com/duckdb/duckdb-azure/issues/226)), so until that is fixed `duckdb_schemas()` shows only the lakehouses already looked up, and a single OneLake table can't be attached on its own.
+- Write in autocommit mode: on OneLake, an `INSERT` inside an explicit `BEGIN ... COMMIT` can fail with an internal error in the Delta and azure extensions, with or without delta_classic.
+- In a Fabric notebook, upgrade DuckDB first: `!pip install duckdb --upgrade`, then `notebookutils.session.restartPython()`.
 
 ## Why "Classic"?
 
@@ -185,7 +200,7 @@ But many workloads are simpler: read-heavy analytics, single-writer pipelines, l
 Using plain storage (directories of Delta tables) instead of a metastore like Unity Catalog has real advantages:
 
 - **No catalog dependency** — you don't need Unity Catalog, Hive Metastore, or any external service to organize your tables
-- **Works everywhere** — local filesystem, S3, ABFSS, GCS. Just point at a directory
+- **Works everywhere** — local filesystem, S3, ABFSS, GCS, OneLake. Just point at a directory
 - **Simple and portable** — your data layout *is* your catalog. Copy a folder, and you've copied a database
 
 This extension just makes that pattern first-class in DuckDB.
